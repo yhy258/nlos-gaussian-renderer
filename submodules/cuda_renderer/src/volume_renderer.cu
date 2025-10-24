@@ -4,6 +4,7 @@
 #include "cuda_utils.cuh"
 #include "bbox_compute.cuh"
 #include "spherical_harmonics.cuh"
+#include "ray_aabb.h"
 #include <tuple>
 
 #define THREADS_PER_BLOCK 256
