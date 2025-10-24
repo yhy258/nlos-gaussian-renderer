@@ -212,7 +212,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> render_rays(
         ray_origins,
         ray_directions,
         gaussian_means,
-        gaussian_bboxes.view({N_gaussians, 2, 3}),
+        gaussian_bboxes,  // Keep as [N, 6] flat layout
         3.0f  // sigma_threshold
     );
 

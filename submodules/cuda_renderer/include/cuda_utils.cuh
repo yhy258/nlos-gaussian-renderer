@@ -59,6 +59,16 @@ __device__ __forceinline__ void quat_to_rotmat(
     
     // Normalize quaternion
     float norm = sqrtf(w*w + x*x + y*y + z*z);
+    
+    // Safety check for zero/degenerate quaternion
+    if (norm < 1e-8f) {
+        // Return identity matrix
+        R[0] = 1.0f; R[1] = 0.0f; R[2] = 0.0f;
+        R[3] = 0.0f; R[4] = 1.0f; R[5] = 0.0f;
+        R[6] = 0.0f; R[7] = 0.0f; R[8] = 1.0f;
+        return;
+    }
+    
     w /= norm; x /= norm; y /= norm; z /= norm;
     
     R[0] = 1.0f - 2.0f*(y*y + z*z);
@@ -131,9 +141,11 @@ __device__ __forceinline__ float eval_gaussian_pdf(
     );
     
     // Mahalanobis distance: (T / scale)^2
-    float mahal_sq = (T.x/scale.x)*(T.x/scale.x) + 
-                     (T.y/scale.y)*(T.y/scale.y) + 
-                     (T.z/scale.z)*(T.z/scale.z);
+    // Add safety epsilon to prevent division by zero
+    const float eps = 1e-8f;
+    float mahal_sq = (T.x/(scale.x + eps))*(T.x/(scale.x + eps)) + 
+                     (T.y/(scale.y + eps))*(T.y/(scale.y + eps)) + 
+                     (T.z/(scale.z + eps))*(T.z/(scale.z + eps));
     
     return expf(-0.5f * mahal_sq);
 }
