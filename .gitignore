@@ -57,6 +57,7 @@ output_videos/
 loss_compare.mat
 output_point_cloud.ply
 output_poisson_mesh.ply
+data/
 
 # Temporary
 *.log
