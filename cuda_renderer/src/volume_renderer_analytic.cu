@@ -4,6 +4,7 @@
 #include "cuda_utils.cuh"
 #include "analytic_integration.cuh"
 #include <tuple>
+#include "spherical_harmonics.cuh"
 
 #define THREADS_PER_BLOCK 256
 #define MAX_GAUSSIANS_PER_RAY 256
