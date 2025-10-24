@@ -1,4 +1,6 @@
 """
+TODO: Since I separated the gaussian_renderer from the main code (in submodules), this file is not used anymore.
+      We have to change the file structure. like rendering_cuda.py
 Section-based Analytic Rendering Integration for GaussianModel
 Wrapper that integrates SectionGaussianRendererCUDA with existing code
 """

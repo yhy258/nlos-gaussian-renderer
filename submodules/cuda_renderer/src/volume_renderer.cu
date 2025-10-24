@@ -189,7 +189,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> render_rays(
     const int sh_dim = gaussian_features.size(1);
     
     // Compute Gaussian bounding boxes on GPU (much faster!)
-    /*auto float_options = torch::TensorOptions().dtype(torch::kFloat32).device(ray_origins.device());
+    auto float_options = torch::TensorOptions().dtype(torch::kFloat32).device(ray_origins.device());
     torch::Tensor gaussian_bboxes = torch::empty({N_gaussians, 6}, float_options);
     
     {
@@ -214,21 +214,20 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> render_rays(
         gaussian_bboxes.view({N_gaussians, 2, 3}),
         3.0f  // sigma_threshold
     );
-    */
 
     // When testing this CUDA based code, I want to use the simplified version (all gaussians for all rays)
     // ** For training and advanced testing, I will use the bbox computation + filtering. (uncomment the code above) **
     // Allocate temporary filter (simplified: all gaussians for all rays)
-    auto options = torch::TensorOptions().dtype(torch::kInt32).device(ray_origins.device());
-    torch::Tensor gaussian_filter = torch::zeros({N_rays, MAX_GAUSSIANS_PER_RAY + 1}, options);
+    // auto options = torch::TensorOptions().dtype(torch::kInt32).device(ray_origins.device());
+    // torch::Tensor gaussian_filter = torch::zeros({N_rays, MAX_GAUSSIANS_PER_RAY + 1}, options);
     
-    // Simplified version (all gaussians for all rays)
-    for (int i = 0; i < N_rays; i++) {
-        gaussian_filter[i][0] = N_gaussians;
-        for (int j = 0; j < N_gaussians && j < MAX_GAUSSIANS_PER_RAY; j++) {
-            gaussian_filter[i][j + 1] = j;
-        }
-    }
+    // // Simplified version (all gaussians for all rays)
+    // for (int i = 0; i < N_rays; i++) {
+    //     gaussian_filter[i][0] = N_gaussians;
+    //     for (int j = 0; j < N_gaussians && j < MAX_GAUSSIANS_PER_RAY; j++) {
+    //         gaussian_filter[i][j + 1] = j;
+    //     }
+    // }
     
     
     // Allocate output tensors
