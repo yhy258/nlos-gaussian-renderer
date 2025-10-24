@@ -121,69 +121,68 @@ __global__ void volume_render_kernel(
             density_out[out_idx] = density;
             transmittance_out[out_idx] = T;
 
-
-        rho_density_out[out_idx] = T * weighted_alphas;
-        T *= expf(-density * c * deltaT);
-        
-        // Early ray termination for efficiency
-        if (T < 1e-4f) {
-            // Fill remaining samples with zero
-            for (int s_rest = s + 1; s_rest < N_samples; s_rest++) {
-                int idx_rest = ray_idx * N_samples + s_rest;
-                rho_density_out[idx_rest] = 0.0f;
-                density_out[idx_rest] = 0.0f;
-                transmittance_out[idx_rest] = 0.0f;
+            rho_density_out[out_idx] = T * weighted_alphas;
+            T *= expf(-density * c * deltaT);
+            
+            // Early ray termination for efficiency
+            if (T < 1e-4f) {
+                // Fill remaining samples with zero
+                for (int s_rest = s + 1; s_rest < N_samples; s_rest++) {
+                    int idx_rest = ray_idx * N_samples + s_rest;
+                    rho_density_out[idx_rest] = 0.0f;
+                    density_out[idx_rest] = 0.0f;
+                    transmittance_out[idx_rest] = 0.0f;
+                }
+                break;
             }
-            break;
-        }
-    } else {
-        for (int i = 0; i < num_gaussians; i++) {
-            int g = valid_gaussian_indices[i];
-            if (g < 0 || g >= N_gaussians) continue;
-            
-            // Load Gaussian parameters
-            float3 mean = make_float3(
-                gaussian_means[g * 3 + 0],
-                gaussian_means[g * 3 + 1],
-                gaussian_means[g * 3 + 2]
-            );
-            
-            float3 scale = make_float3(
-                expf(gaussian_scales[g * 3 + 0]) * scaling_modifier,
-                expf(gaussian_scales[g * 3 + 1]) * scaling_modifier,
-                expf(gaussian_scales[g * 3 + 2]) * scaling_modifier
-            );
-            
-            float4 quat = make_float4(
-                gaussian_rotations[g * 4 + 0],
-                gaussian_rotations[g * 4 + 1],
-                gaussian_rotations[g * 4 + 2],
-                gaussian_rotations[g * 4 + 3]
-            );
-            
-            float opacity = 1.0f / (1.0f + expf(-gaussian_opacities[g])); // sigmoid
-            
-            // Evaluate Gaussian PDF
-            float pdf = eval_gaussian_pdf(pos, mean, scale, quat);
-            
-            // View-dependent albedo (SH evaluation)
-            float3 view_dir = normalize(mean - cam_pos);
-            float rho = eval_sh(active_sh_degree, &gaussian_features[g * sh_dim], view_dir);
-            rho = fmaxf(rho + 0.5f, 0.0f);  // clamp_min(sh2rho + 0.5, 0.0)
-            
-            // Accumulate
-            float contrib = pdf * opacity;
-            density += contrib;
-            weighted_radiance += contrib * rho;
-        }
-        int out_idx = ray_idx * N_samples + s;
-        density_out[out_idx] = density;
-        transmittance_out[out_idx] = T;
+        } else {
+            for (int i = 0; i < num_gaussians; i++) {
+                int g = valid_gaussian_indices[i];
+                if (g < 0 || g >= N_gaussians) continue;
+                
+                // Load Gaussian parameters
+                float3 mean = make_float3(
+                    gaussian_means[g * 3 + 0],
+                    gaussian_means[g * 3 + 1],
+                    gaussian_means[g * 3 + 2]
+                );
+                
+                float3 scale = make_float3(
+                    expf(gaussian_scales[g * 3 + 0]) * scaling_modifier,
+                    expf(gaussian_scales[g * 3 + 1]) * scaling_modifier,
+                    expf(gaussian_scales[g * 3 + 2]) * scaling_modifier
+                );
+                
+                float4 quat = make_float4(
+                    gaussian_rotations[g * 4 + 0],
+                    gaussian_rotations[g * 4 + 1],
+                    gaussian_rotations[g * 4 + 2],
+                    gaussian_rotations[g * 4 + 3]
+                );
+                
+                float opacity = 1.0f / (1.0f + expf(-gaussian_opacities[g])); // sigmoid
+                
+                // Evaluate Gaussian PDF
+                float pdf = eval_gaussian_pdf(pos, mean, scale, quat);
+                
+                // View-dependent albedo (SH evaluation)
+                float3 view_dir = normalize(mean - cam_pos);
+                float rho = eval_sh(active_sh_degree, &gaussian_features[g * sh_dim], view_dir);
+                rho = fmaxf(rho + 0.5f, 0.0f);  // clamp_min(sh2rho + 0.5, 0.0)
+                
+                // Accumulate
+                float contrib = pdf * opacity;
+                density += contrib;
+                weighted_radiance += contrib * rho;
+            }
+            int out_idx = ray_idx * N_samples + s;
+            density_out[out_idx] = density;
+            transmittance_out[out_idx] = T;
 
-        rho_density_out[out_idx] = weighted_radiance * c * deltaT;
+            rho_density_out[out_idx] = weighted_radiance * c * deltaT;
+        }
     }
 }
-
 // NOTE: compute_transmittance_kernel is now integrated into volume_render_kernel
 // for single-pass efficiency and correctness. Keeping this comment for reference.
 
