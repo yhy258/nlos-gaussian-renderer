@@ -117,7 +117,6 @@ __global__ void volume_render_analytic_kernel(
     // Analytic integration through sections
     float transmittance = 1.0f;
     float accumulated_radiance = 0.0f;
-    float prev_t = t_min;
     
     for (int s = 0; s < num_sections; s++) {
         int g = sections[s].gaussian_idx;
@@ -165,8 +164,6 @@ __global__ void volume_render_analytic_kernel(
         
         // Update transmittance
         transmittance *= section_transmittance;
-        
-        prev_t = t_exit;
         
         // Early termination
         if (transmittance < 1e-4f) break;
