@@ -231,8 +231,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> render_rays(
     // }
     
     
-    // Allocate output tensors
-    auto float_options = torch::TensorOptions().dtype(torch::kFloat32).device(ray_origins.device());
+    // Allocate output tensors (reuse float_options from above)
     torch::Tensor rho_density = torch::zeros({N_rays, N_samples}, float_options);
     torch::Tensor density = torch::zeros({N_rays, N_samples}, float_options);
     torch::Tensor transmittance = torch::zeros({N_rays, N_samples}, float_options);
