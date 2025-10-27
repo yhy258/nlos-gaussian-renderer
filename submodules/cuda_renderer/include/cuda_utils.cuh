@@ -50,6 +50,17 @@ __device__ __forceinline__ float3 normalize(const float3& v) {
     return v * (1.0f / (len + 1e-8f));
 }
 
+// CUDA의 float3는 .x, .y, .z 멤버로 접근 가능합니다.
+// 인덱싱(예: a[0])은 불가능하니 .x, .y, .z를 써야 합니다.
+__device__ __forceinline__ void outer_product(const float3& a, const float3& b, float out[9]) {
+    out[0] = a.x * b.x; out[1] = a.x * b.y; out[2] = a.x * b.z;
+    out[3] = a.y * b.x; out[4] = a.y * b.y; out[5] = a.y * b.z;
+    out[6] = a.z * b.x; out[7] = a.z * b.y; out[8] = a.z * b.z;
+}
+
+
+
+
 // Quaternion to rotation matrix
 __device__ __forceinline__ void quat_to_rotmat(
     const float4& q,  // quaternion (w, x, y, z)
@@ -148,6 +159,36 @@ __device__ __forceinline__ float eval_gaussian_pdf(
                      (T.z/(scale.z + eps))*(T.z/(scale.z + eps));
     
     return expf(-0.5f * mahal_sq);
+}
+
+// Get Mahalanobis distance squared
+__device__ __forceinline__ float eval_mahalanobis_distance_squared(
+    const float3& pos,
+    const float3& mean,
+    const float3& scale,
+    const float4& quat
+) {
+    float3 diff = pos - mean;
+    
+    // Build rotation matrix
+    float R[9];
+    quat_to_rotmat(quat, R);
+    
+    // Rotate diff: T = R^T * diff
+    float3 T = make_float3(
+        R[0]*diff.x + R[3]*diff.y + R[6]*diff.z,
+        R[1]*diff.x + R[4]*diff.y + R[7]*diff.z,
+        R[2]*diff.x + R[5]*diff.y + R[8]*diff.z
+    );
+    
+    // Mahalanobis distance: (T / scale)^2
+    // Add safety epsilon to prevent division by zero
+    const float eps = 1e-8f;
+    float mahal_sq = (T.x/(scale.x + eps))*(T.x/(scale.x + eps)) + 
+                     (T.y/(scale.y + eps))*(T.y/(scale.y + eps)) + 
+                     (T.z/(scale.z + eps))*(T.z/(scale.z + eps));
+    
+    return mahal_sq;
 }
 
 #endif // CUDA_UTILS_CUH

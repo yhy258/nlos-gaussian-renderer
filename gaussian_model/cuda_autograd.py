@@ -65,7 +65,7 @@ class CUDARenderFunction(torch.autograd.Function):
         camera_pos = camera_pos.contiguous()
         
         # Call CUDA forward kernel
-        rho_density, density, transmittance = _C.render_rays(
+        rho_density, density, transmittance, gaussian_bboxes, gaussian_filter = _C.render_rays(
             ray_origins,
             ray_directions,
             t_samples,
@@ -88,6 +88,7 @@ class CUDARenderFunction(torch.autograd.Function):
             ray_origins,
             ray_directions,
             t_samples,
+            gaussian_filter,
             gaussian_means,
             gaussian_scales,
             gaussian_rotations,
@@ -125,6 +126,7 @@ class CUDARenderFunction(torch.autograd.Function):
             ray_origins,
             ray_directions,
             t_samples,
+            gaussian_filter,
             gaussian_means,
             gaussian_scales,
             gaussian_rotations,
@@ -143,33 +145,39 @@ class CUDARenderFunction(torch.autograd.Function):
         grad_gaussian_opacities = None
         grad_gaussian_features = None
         
+        grad_gaussian_means_, grad_gaussian_scales_, grad_gaussian_rotations_, grad_gaussian_opacities_, grad_gaussian_features_ \
+                =_C.render_rays_backward(
+                    rho_density,
+                    density,
+                    transmittance,
+                    grad_rho_density,
+                    grad_density,
+                    grad_transmittance,
+                    ray_origins,
+                    ray_directions,
+                    t_samples,
+                    gaussian_filter,
+                    gaussian_means,
+                    gaussian_scales,
+                    gaussian_rotations,
+                    gaussian_opacities,
+                    gaussian_features,
+                    camera_pos,
+                    ctx.active_sh_degree, ctx.c, ctx.deltaT, ctx.scaling_modifier, ctx.use_occlusion
+                )
+
         # Only compute gradients if needed
         if ctx.needs_input_grad[3]:  # gaussian_means
-            grad_gaussian_means = torch.zeros_like(gaussian_means)
+            grad_gaussian_means = grad_gaussian_means_
         if ctx.needs_input_grad[4]:  # gaussian_scales
-            grad_gaussian_scales = torch.zeros_like(gaussian_scales)
+            grad_gaussian_scales = grad_gaussian_scales_
         if ctx.needs_input_grad[5]:  # gaussian_rotations
-            grad_gaussian_rotations = torch.zeros_like(gaussian_rotations)
+            grad_gaussian_rotations = grad_gaussian_rotations_
         if ctx.needs_input_grad[6]:  # gaussian_opacities
-            grad_gaussian_opacities = torch.zeros_like(gaussian_opacities)
+            grad_gaussian_opacities = grad_gaussian_opacities_
         if ctx.needs_input_grad[7]:  # gaussian_features
-            grad_gaussian_features = torch.zeros_like(gaussian_features)
-        
-        # TODO: Call CUDA backward kernel when implemented
-        # For now, we'll use PyTorch's automatic differentiation
-        # This is a placeholder for future CUDA backward implementation
-        
-        # _C.render_rays_backward(
-        #     grad_rho_density.contiguous(),
-        #     ray_origins, ray_directions, t_samples,
-        #     gaussian_means, gaussian_scales, gaussian_rotations,
-        #     gaussian_opacities, gaussian_features, camera_pos,
-        #     rho_density, density, transmittance,
-        #     grad_gaussian_means, grad_gaussian_scales, grad_gaussian_rotations,
-        #     grad_gaussian_opacities, grad_gaussian_features,
-        #     ctx.active_sh_degree, ctx.c, ctx.deltaT,
-        #     ctx.scaling_modifier, ctx.use_occlusion, ctx.rendering_type
-        # )
+            grad_gaussian_features = grad_gaussian_features_
+
         
         # Return gradients for all inputs (None for non-differentiable)
         return (

@@ -112,7 +112,10 @@ __global__ void volume_render_kernel(
 
 
                 float contrib = pdf * opacity;
-                float alpha = 1.0f - expf(-contrib * c * deltaT);
+                // should we product the dr=c*deltaT? 
+                // In NLOS-NeuS, they producted this factor since this term would be the discretized version of the integral for the ray samples points.
+                // float alpha = 1.0f - expf(-contrib * c * deltaT); 
+                float alpha = 1.0f - expf(-contrib);
                 weighted_alphas += alpha * rho;
                 density += contrib;
             }
@@ -186,7 +189,7 @@ __global__ void volume_render_kernel(
 // NOTE: compute_transmittance_kernel is now integrated into volume_render_kernel
 // for single-pass efficiency and correctness. Keeping this comment for reference.
 
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> render_rays(
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> render_rays(
     const torch::Tensor& ray_origins,
     const torch::Tensor& ray_directions,
     const torch::Tensor& t_samples,
@@ -301,7 +304,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> render_rays(
     // Transmittance is now computed inside volume_render_kernel
     // No second pass needed - more efficient and correct!
     
-    return std::make_tuple(rho_density, density, transmittance);
+    return std::make_tuple(rho_density, density, transmittance, gaussian_bboxes, gaussian_filter);
 }
 
 

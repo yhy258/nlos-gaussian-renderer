@@ -43,6 +43,9 @@ cuda_renderer/*.egg-info/
 *.swo
 *~
 
+# meaningless markdowns
+cursor_md/
+
 # OS
 .DS_Store
 Thumbs.db
