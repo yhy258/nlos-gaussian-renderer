@@ -227,8 +227,7 @@ class CUDARenderModule(nn.Module):
         c: float,
         deltaT: float,
         scaling_modifier: float = 1.0,
-        use_occlusion: bool = True,
-        rendering_type: str = 'netf'
+        use_occlusion: bool = True
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass through CUDA renderer
@@ -246,7 +245,6 @@ class CUDARenderModule(nn.Module):
             deltaT: Time interval
             scaling_modifier: Gaussian scale modifier
             use_occlusion: Whether to use transmittance
-            rendering_type: 'netf' or 'nlos-neus'
         
         Returns:
             result: [num_r, num_theta, num_phi] rendered volume
@@ -298,8 +296,7 @@ class CUDARenderModule(nn.Module):
             c,
             deltaT,
             scaling_modifier,
-            use_occlusion,
-            rendering_type
+            use_occlusion
         )
         
         # Reshape and apply geometric attenuation

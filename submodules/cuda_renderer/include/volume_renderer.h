@@ -5,7 +5,8 @@
 #include <tuple>
 
 // Per-ray volume rendering with transmittance
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> render_rays(
+// Returns: (rho_density, density, transmittance, gaussian_bboxes, gaussian_filter)
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> render_rays(
     const torch::Tensor& ray_origins,        // [N_rays, 3]
     const torch::Tensor& ray_directions,     // [N_rays, 3]
     const torch::Tensor& t_samples,          // [N_samples] - ray parameter values (r values)
@@ -19,8 +20,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> render_rays(
     const float c,                           // speed of light
     const float deltaT,                      // time interval
     const float scaling_modifier,
-    const bool use_occlusion,
-    const std::string& rendering_type        // "netf" or "nlos-neus"
+    const bool use_occlusion
 );
 
 #endif // VOLUME_RENDERER_H
