@@ -32,8 +32,7 @@ __global__ void volume_render_kernel(
     const float c,
     const float deltaT,
     const float scaling_modifier,
-    const bool use_occlusion,
-    const int rendering_type,  // 0: netf, 1: nlos-neus
+    const bool use_occlusion, 
     float* __restrict__ rho_density_out,          // [N_rays, N_samples] - FINAL OUTPUT
     float* __restrict__ density_out,              // [N_rays, N_samples] - for debugging
     float* __restrict__ transmittance_out         // [N_rays, N_samples] - for debugging
@@ -203,8 +202,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
     const float c,
     const float deltaT,
     const float scaling_modifier,
-    const bool use_occlusion,
-    const std::string& rendering_type
+    const bool use_occlusion
 ) {
     CHECK_INPUT(ray_origins);
     CHECK_INPUT(ray_directions);
@@ -267,8 +265,6 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
     torch::Tensor density = torch::zeros({N_rays, N_samples}, float_options);
     torch::Tensor transmittance = torch::zeros({N_rays, N_samples}, float_options);
     
-    int render_type = (rendering_type == "netf") ? 0 : 1;
-    
     // Launch rendering kernel
     const int blocks = (N_rays + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
     
@@ -292,7 +288,6 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
         deltaT,
         scaling_modifier,
         use_occlusion,
-        render_type,
         rho_density.data_ptr<float>(),
         density.data_ptr<float>(),
         transmittance.data_ptr<float>()

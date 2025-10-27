@@ -39,8 +39,7 @@ class CUDARenderFunction(torch.autograd.Function):
         c: float,
         deltaT: float,
         scaling_modifier: float,
-        use_occlusion: bool,
-        rendering_type: str
+        use_occlusion: bool
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Forward pass: Render rays through Gaussians
@@ -79,8 +78,7 @@ class CUDARenderFunction(torch.autograd.Function):
             c,
             deltaT,
             scaling_modifier,
-            use_occlusion,
-            rendering_type
+            use_occlusion
         )
         
         # Save for backward
@@ -104,7 +102,6 @@ class CUDARenderFunction(torch.autograd.Function):
         ctx.deltaT = deltaT
         ctx.scaling_modifier = scaling_modifier
         ctx.use_occlusion = use_occlusion
-        ctx.rendering_type = rendering_type
         
         return rho_density, density, transmittance
     
@@ -195,7 +192,6 @@ class CUDARenderFunction(torch.autograd.Function):
             None,  # deltaT
             None,  # scaling_modifier
             None,  # use_occlusion
-            None,  # rendering_type
         )
 
 
