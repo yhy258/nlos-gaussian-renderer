@@ -1,7 +1,7 @@
 #include <torch/extension.h>
 #include "ray_aabb.h"
 #include "volume_renderer.h"
-
+#include "volume_renderer_backward.h"
 // Forward declaration for analytic renderer
 torch::Tensor render_rays_analytic(
     const torch::Tensor& ray_origins,
@@ -32,5 +32,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     
     m.def("render_rays_analytic", &render_rays_analytic,
           "Section-based analytic volume rendering (CUDA)");
+
+    m.def("render_rays_backward", &render_rays_backward,
+          "Backward pass for volume rendering (CUDA)");
 }
 

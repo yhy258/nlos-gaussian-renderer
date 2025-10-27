@@ -48,8 +48,7 @@ std::tuple<
     const float c,
     const float deltaT,
     const float scaling_modifier,
-    const bool use_occlusion,
-    const std::string& rendering_type
+    const bool use_occlusion
 );
 
 #endif // VOLUME_RENDERER_BACKWARD_H

@@ -457,7 +457,7 @@ std::tuple<
     const float c,
     const float deltaT,
     const float scaling_modifier,
-    const bool use_occlusion,
+    const bool use_occlusion
 ) {
     // Input validation
     CHECK_INPUT(grad_rho_density);
