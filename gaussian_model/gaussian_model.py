@@ -1,14 +1,29 @@
+import math
 import numpy as np
 import torch
 import torch.nn as nn
-from .gaussian_utils import build_rotation,build_scaling_rotation, strip_symmetric, inverse_sigmoid, inverse_opacity_activation, get_expon_lr_func
+from .gaussian_utils import build_rotation, build_scaling_rotation, strip_symmetric, inverse_sigmoid, get_expon_lr_func
 from .sh_utils import eval_sh, RHO2SH
-
 try:
     from simple_knn._C import distCUDA2 ### KNN using CUDA.
     KNN_FLAG = True
 except:
     KNN_FLAG = False
+try:
+    from diff_gaussian_rasterization import compute_relocation
+except:
+    compute_relocation = None
+    raise Exception("There is no [diff_gaussian_rasterization: relocation func]")
+
+N_max = 51
+binoms = torch.zeros((N_max, N_max)).float().cuda()
+for n in range(N_max):
+    for k in range(n+1):
+        binoms[n, k] = math.comb(n, k)
+
+def compute_relocation_cuda(opacity_old, scale_old, N):
+    N.clamp_(min=1, max=N_max-1)
+    return compute_relocation(opacity_old, scale_old, N, binoms, N_max)
 
 class GaussianModel:
     def setup_functions(self):
@@ -200,13 +215,13 @@ class GaussianModel:
 
         # Initialize covariances using KNN (I guess near the three points?
         if KNN_FLAG:
-            dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(points), dtype=torch.float, device=self.device)), 0.0000001)
+            dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(points)).float().to(self.device)), 0.0000001)
         else:
             pmin_x, pmax_x = pmin[0], pmax[0]
             init_gaussian_num = points.shape[0]
             dist2 = (pmax_x - pmin_x) / (init_gaussian_num + 1e-9)
             dist2 = torch.clamp_min(torch.tensor(dist2, dtype=torch.float, device=self.device), 0.0000001)
-        scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 3)
+        scales = torch.log(torch.sqrt(dist2))[...,None].repeat(fused_point_cloud.shape[0], 3)
         rots = torch.zeros((fused_point_cloud.shape[0], 4), dtype=torch.float, device=self.device)
         rots[:, 0] = 1
 
@@ -247,6 +262,26 @@ class GaussianModel:
                 lr = self.mu_scheduler_args(iteration)
                 param_group['lr'] = lr
                 return lr
+
+    def reset_opacity(self):
+        opacities_new = self.inverse_opacity_activation(torch.min(self.get_opacity, torch.ones_like(self.get_opacity)*0.01))
+        optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
+        self._opacity = optimizable_tensors["opacity"]
+
+    def replace_tensor_to_optimizer(self, tensor, name):
+        optimizable_tensors = {}
+        for group in self.optimizer.param_groups:
+            if group["name"] == name:
+                stored_state = self.optimizer.state.get(group['params'][0], None)
+                stored_state["exp_avg"] = torch.zeros_like(tensor)
+                stored_state["exp_avg_sq"] = torch.zeros_like(tensor)
+
+                del self.optimizer.state[group['params'][0]]
+                group["params"][0] = nn.Parameter(tensor.requires_grad_(True))
+                self.optimizer.state[group['params'][0]] = stored_state
+
+                optimizable_tensors[group["name"]] = group["params"][0]
+        return optimizable_tensors
 
 
 
@@ -445,6 +480,7 @@ class GaussianModel:
 
             if inds is not None:
                 #### Make original µs' momentum as 0.
+                # TODO: 이 부분 에러 발생..
                 stored_state["exp_avg"][inds] = 0
                 stored_state["exp_avg_sq"][inds] = 0
             else:
@@ -474,17 +510,17 @@ class GaussianModel:
             scale_old=self.get_scaling[idxs],
             N=ratio[idxs, 0] + 1
         )
-        new_opacity = torch.clamp(new_opacity.unsqeeze(-1), max=1.0 - torch.finfo(torch.float32).eps, min=0.005)
+        new_opacity = torch.clamp(new_opacity.unsqueeze(-1), max=1.0 - torch.finfo(torch.float32).eps, min=0.005)
         new_opacity = self.inverse_opacity_activation(new_opacity)
         new_scaling = self.scaling_inverse_activation(new_scaling.reshape(-1, 3))
 
         return self._mu[idxs], self._features_dc[idxs], self._features_rest[idxs], new_opacity, new_scaling, self._rotation[idxs]
 
-    def _sample_alives(self, probs, num, alive_indices):
+    def _sample_alives(self, probs, num, alive_indices=None):
         probs = probs / (probs.sum() + torch.finfo(torch.float32).eps)
         sampled_idxs = torch.multinomial(probs, num, replacement=True)
-
-        sampled_idxs = alive_indices[sampled_idxs]
+        if alive_indices is not None:
+            sampled_idxs = alive_indices[sampled_idxs]
         ratio = torch.bincount(sampled_idxs).unsqueeze(-1) # 각 sample idxs의 빈도.
         return sampled_idxs, ratio
 
@@ -547,4 +583,3 @@ class GaussianModel:
         self.replace_tensors_to_optimizer(inds=add_idx)
 
         return num_gs
-

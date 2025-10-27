@@ -19,13 +19,13 @@ from gaussian_model.gaussian_model import GaussianModel
 
 # Try to import CUDA renderer
 try:
-    from gaussian_model.rendering_cuda import create_cuda_renderer, CUDA_AVAILABLE
-    CUDA_RENDERER = create_cuda_renderer()
+    from gaussian_model.cuda_autograd import create_cuda_render_module
+    CUDA_RENDERER_AVAILABLE = True
+    CUDA_RENDERER = create_cuda_render_module()
 except ImportError:
-    CUDA_AVAILABLE = False
+    CUDA_RENDERER_AVAILABLE = False
     CUDA_RENDERER = None
     print("Note: CUDA renderer not available. Using standard implementation.")
-
 
 def save_model(args, model, current_iter):
     # save model
@@ -189,21 +189,70 @@ def spherical_sample_histogram(args, data_kwargs, current_camera_grid_positions)
 
 
 
+def gaussian_transient_rendering_cuda(args, model, data_kwargs, input_points, current_camera_grid_positions, I1, I2, num_r, dtheta, dphi):
+    """
+    CUDA-accelerated version of gaussian_transient_rendering.
+
+    Uses ray-based rendering with Gaussian filtering for efficient computation.
+    Only relevant Gaussians are processed for each ray.
+    """
+    # Extract angular ranges from input_points
+    theta_vals = input_points[:, 3]
+    phi_vals = input_points[:, 4]
+
+    theta_min = theta_vals.min().item()
+    theta_max = theta_vals.max().item()
+    phi_min = phi_vals.min().item()
+    phi_max = phi_vals.max().item()
+
+    r_min = I1 * data_kwargs['c'] * data_kwargs['deltaT']
+    r_max = I2 * data_kwargs['c'] * data_kwargs['deltaT']
+
+    # Call CUDA renderer
+    """
+    gaussian_model,
+    camera_pos: torch.Tensor,
+    theta_range: Tuple[float, float],
+    phi_range: Tuple[float, float],
+    r_range: Tuple[float, float],
+    num_theta: int,
+    num_phi: int,
+    num_r: int,
+    c: float,
+    deltaT: float,
+    scaling_modifier: float = 1.0,
+    use_occlusion: bool = True
+    """
+    result_3d, pred_histogram = CUDA_RENDERER(
+        gaussian_model=model,
+        camera_pos=current_camera_grid_positions,
+        theta_range=(theta_min, theta_max),
+        phi_range=(phi_min, phi_max),
+        r_range=(r_min, r_max),
+        num_theta=args.num_sampling_points,
+        num_phi=args.num_sampling_points,
+        num_r=num_r,
+        c=data_kwargs['c'],
+        deltaT=data_kwargs['deltaT'],
+        scaling_modifier=args.scaling_modifier,
+        use_occlusion=args.occlusion,
+    )
+
+    # Reshape to match original format [num_r, num_angular^2]
+    result = result_3d.reshape(num_r, args.num_sampling_points * args.num_sampling_points)
+
+    # Apply the mysterious scaling factor (kept for compatibility)
+    result = result * (data_kwargs['volume_position'][1] ** 2)
+    pred_histogram = pred_histogram * (data_kwargs['volume_position'][1] ** 2)
+
+    return result, pred_histogram
+
 def gaussian_transient_rendering(args, model, data_kwargs, input_points, current_camera_grid_positions, I1, I2, num_r, dtheta, dphi):
-    """
-    Gaussian transient rendering with optional CUDA acceleration.
-    
-    If args.use_cuda_renderer is True and CUDA renderer is available,
-    uses efficient ray-based CUDA kernels. Otherwise falls back to standard implementation.
-    """
-    # Check if CUDA rendering is requested and available
     if hasattr(args, 'use_cuda_renderer') and args.use_cuda_renderer and CUDA_RENDERER is not None:
         return gaussian_transient_rendering_cuda(
-            args, model, data_kwargs, input_points, 
+            args, model, data_kwargs, input_points,
             current_camera_grid_positions, I1, I2, num_r, dtheta, dphi
         )
-    
-    # Standard implementation
     # Result: Na (Na = Nr x Ntheta x Nphi)
     input_points_ori = input_points[:, 0:3] # spatial coordinate Na by 3
     if args.occlusion == False:
@@ -229,52 +278,6 @@ def gaussian_transient_rendering(args, model, data_kwargs, input_points, current
     pred_histogram = pred_histogram * dtheta * dphi # infinitesimal factor product.
     # print("Predicted histogram's shape: ", pred_histogram.shape)
 
-    return result, pred_histogram
-
-
-def gaussian_transient_rendering_cuda(args, model, data_kwargs, input_points, current_camera_grid_positions, I1, I2, num_r, dtheta, dphi):
-    """
-    CUDA-accelerated version of gaussian_transient_rendering.
-    
-    Uses ray-based rendering with Gaussian filtering for efficient computation.
-    Only relevant Gaussians are processed for each ray.
-    """
-    # Extract angular ranges from input_points
-    theta_vals = input_points[:, 3]
-    phi_vals = input_points[:, 4]
-    
-    theta_min = theta_vals.min().item()
-    theta_max = theta_vals.max().item()
-    phi_min = phi_vals.min().item()
-    phi_max = phi_vals.max().item()
-    
-    r_min = I1 * data_kwargs['c'] * data_kwargs['deltaT']
-    r_max = I2 * data_kwargs['c'] * data_kwargs['deltaT']
-    
-    # Call CUDA renderer
-    result_3d, pred_histogram = CUDA_RENDERER.render_transient(
-        gaussian_model=model,
-        camera_pos=current_camera_grid_positions,
-        theta_range=(theta_min, theta_max),
-        phi_range=(phi_min, phi_max),
-        r_range=(r_min, r_max),
-        num_theta=args.num_sampling_points,
-        num_phi=args.num_sampling_points,
-        num_r=num_r,
-        c=data_kwargs['c'],
-        deltaT=data_kwargs['deltaT'],
-        scaling_modifier=args.scaling_modifier,
-        use_occlusion=args.occlusion,
-        rendering_type=args.rendering_type
-    )
-    
-    # Reshape to match original format [num_r, num_angular^2]
-    result = result_3d.reshape(num_r, args.num_sampling_points * args.num_sampling_points)
-    
-    # Apply the mysterious scaling factor (kept for compatibility)
-    result = result * (data_kwargs['volume_position'][1] ** 2)
-    pred_histogram = pred_histogram * (data_kwargs['volume_position'][1] ** 2)
-    
     return result, pred_histogram
 
 def compute_loss(args, model: GaussianModel, data_kwargs: dict, optim_kwargs: dict, device: torch.device):

@@ -9,9 +9,9 @@ from typing import Tuple, Optional
 
 try:
     from nlos_gaussian_renderer import _C
-    CUDA_AVAILABLE = True
+    CUDA_RENDERER_AVAILABLE = True
 except ImportError:
-    CUDA_AVAILABLE = False
+    CUDA_RENDERER_AVAILABLE = False
     print("Warning: CUDA renderer not available")
 
 
@@ -147,16 +147,16 @@ class CUDARenderFunction(torch.autograd.Function):
                     grad_rho_density,
                     grad_density,
                     grad_transmittance,
-                    ray_origins,
-                    ray_directions,
-                    t_samples,
-                    gaussian_filter,
-                    gaussian_means,
-                    gaussian_scales,
-                    gaussian_rotations, # Pass the saved tensor
-                    gaussian_opacities,
-                    gaussian_features,
-                    camera_pos,
+                    ray_origins.contiguous(),
+                    ray_directions.contiguous(),
+                    t_samples.contiguous(),
+                    gaussian_filter.contiguous(),
+                    gaussian_means.contiguous(),
+                    gaussian_scales.contiguous(),
+                    gaussian_rotations.contiguous(), # Pass the saved tensor
+                    gaussian_opacities.contiguous(),
+                    gaussian_features.contiguous(),
+                    camera_pos.contiguous(),
                     ctx.active_sh_degree, ctx.c, ctx.deltaT, ctx.scaling_modifier, ctx.use_occlusion
                 )
 
@@ -327,4 +327,3 @@ def create_cuda_render_module(sigma_threshold: float = 3.0) -> Optional[CUDARend
     if not CUDA_AVAILABLE:
         return None
     return CUDARenderModule(sigma_threshold=sigma_threshold)
-

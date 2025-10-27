@@ -163,6 +163,9 @@ def warmup_learn_func(args, optim_args, model, data_kwargs, optim_kwargs, device
             ######### If we want.. we can conduct Brownian motion!
             ######### -> SGLD.
 
+        if optim_kwargs['current_iter'] % args.print_interval == 0:
+            print(optim_kwargs['current_iter'], '/', optim_kwargs['total_iter'], 'iter  ', m, '/', data_kwargs['nlos_data'].shape[1],'  ', n,'/',data_kwargs['nlos_data'].shape[2], '  histgram loss: ',loss.item())
+
         optim_kwargs['current_iter'] += 1
 
     dt = time.time()-optim_kwargs['prev_time']
@@ -363,10 +366,10 @@ def train(args, optim_args, device):
     time0 = time.time()
     optim_kwargs['prev_time'] = time0
     print(' ')
+    
+    model, optim_kwargs = warmup_learn_func(args, optim_args, model, data_kwargs, optim_kwargs, device)
     while True:
-        model, optim_kwargs = warmup_learn_func(args, optim_args, model, data_kwargs, optim_kwargs, device)
         model, optim_kwargs, complete = learn_func(args, optim_args, model, data_kwargs, optim_kwargs, device)
-
         if complete:
             break
 
