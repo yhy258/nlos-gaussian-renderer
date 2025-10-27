@@ -18,11 +18,11 @@ except ImportError:
 class CUDARenderFunction(torch.autograd.Function):
     """
     Autograd function for CUDA ray-based rendering.
-    
+
     Forward: Computes rendering result from Gaussians
     Backward: Computes gradients w.r.t. Gaussian parameters
     """
-    
+
     @staticmethod
     def forward(
         ctx,
@@ -43,7 +43,7 @@ class CUDARenderFunction(torch.autograd.Function):
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Forward pass: Render rays through Gaussians
-        
+
         Returns:
             rho_density: [N_samples, N_rays] - Main rendering output
             density: [N_samples, N_rays] - Density field
@@ -51,37 +51,26 @@ class CUDARenderFunction(torch.autograd.Function):
         """
         if not CUDA_AVAILABLE:
             raise RuntimeError("CUDA renderer not available")
-        
-        # Ensure all tensors are contiguous and on CUDA
-        ray_origins = ray_origins.contiguous()
-        ray_directions = ray_directions.contiguous()
-        t_samples = t_samples.contiguous()
-        gaussian_means = gaussian_means.contiguous()
-        gaussian_scales = gaussian_scales.contiguous()
-        gaussian_rotations = gaussian_rotations.contiguous()
-        gaussian_opacities = gaussian_opacities.contiguous()
-        gaussian_features = gaussian_features.contiguous()
-        camera_pos = camera_pos.contiguous()
-        
-        # Call CUDA forward kernel
+
+        # Call CUDA forward kernel (ensure contiguous for CUDA)
         rho_density, density, transmittance, gaussian_bboxes, gaussian_filter = _C.render_rays(
-            ray_origins,
-            ray_directions,
-            t_samples,
-            gaussian_means,
-            gaussian_scales,
-            gaussian_rotations,
-            gaussian_opacities,
-            gaussian_features,
-            camera_pos,
+            ray_origins.contiguous(),
+            ray_directions.contiguous(),
+            t_samples.contiguous(),
+            gaussian_means.contiguous(),
+            gaussian_scales.contiguous(),
+            gaussian_rotations.contiguous(),
+            gaussian_opacities.contiguous(),
+            gaussian_features.contiguous(),
+            camera_pos.contiguous(),
             active_sh_degree,
             c,
             deltaT,
             scaling_modifier,
             use_occlusion
         )
-        
-        # Save for backward
+
+        # Save ORIGINAL tensors for backward (NOT contiguous copies!)
         ctx.save_for_backward(
             ray_origins,
             ray_directions,
@@ -102,19 +91,19 @@ class CUDARenderFunction(torch.autograd.Function):
         ctx.deltaT = deltaT
         ctx.scaling_modifier = scaling_modifier
         ctx.use_occlusion = use_occlusion
-        
+
         return rho_density, density, transmittance
-    
+
     @staticmethod
     def backward(ctx, grad_rho_density, grad_density, grad_transmittance):
         """
         Backward pass: Compute gradients w.r.t. Gaussian parameters
-        
+
         Args:
             grad_rho_density: [N_samples, N_rays] - Gradient from loss
             grad_density: [N_samples, N_rays] - Usually None
             grad_transmittance: [N_samples, N_rays] - Usually None
-        
+
         Returns:
             Gradients for all forward inputs (None for non-learnable params)
         """
@@ -126,7 +115,7 @@ class CUDARenderFunction(torch.autograd.Function):
             gaussian_filter,
             gaussian_means,
             gaussian_scales,
-            gaussian_rotations,
+            gaussian_rotations, # This is the tensor saved in forward
             gaussian_opacities,
             gaussian_features,
             camera_pos,
@@ -134,7 +123,14 @@ class CUDARenderFunction(torch.autograd.Function):
             density,
             transmittance
         ) = ctx.saved_tensors
-        
+
+        # Initialize gradients
+        grad_gaussian_means = None
+        grad_gaussian_scales = None
+        grad_gaussian_rotations = None
+        grad_gaussian_opacities = None
+        grad_gaussian_features = None
+
         # Ensure input gradient tensors are contiguous
         if grad_rho_density is not None:
             grad_rho_density = grad_rho_density.contiguous()
@@ -142,14 +138,7 @@ class CUDARenderFunction(torch.autograd.Function):
             grad_density = grad_density.contiguous()
         if grad_transmittance is not None:
             grad_transmittance = grad_transmittance.contiguous()
-        
-        # Initialize gradients
-        grad_gaussian_means = None
-        grad_gaussian_scales = None
-        grad_gaussian_rotations = None
-        grad_gaussian_opacities = None
-        grad_gaussian_features = None
-        
+
         grad_gaussian_means_, grad_gaussian_scales_, grad_gaussian_rotations_, grad_gaussian_opacities_, grad_gaussian_features_ \
                 =_C.render_rays_backward(
                     rho_density,
@@ -164,12 +153,13 @@ class CUDARenderFunction(torch.autograd.Function):
                     gaussian_filter,
                     gaussian_means,
                     gaussian_scales,
-                    gaussian_rotations,
+                    gaussian_rotations, # Pass the saved tensor
                     gaussian_opacities,
                     gaussian_features,
                     camera_pos,
                     ctx.active_sh_degree, ctx.c, ctx.deltaT, ctx.scaling_modifier, ctx.use_occlusion
                 )
+
 
         # Only compute gradients if needed
         if ctx.needs_input_grad[3]:  # gaussian_means
@@ -177,13 +167,12 @@ class CUDARenderFunction(torch.autograd.Function):
         if ctx.needs_input_grad[4]:  # gaussian_scales
             grad_gaussian_scales = grad_gaussian_scales_
         if ctx.needs_input_grad[5]:  # gaussian_rotations
-            grad_gaussian_rotations = grad_gaussian_rotations_
+             grad_gaussian_rotations = grad_gaussian_rotations_ # Assign the gradient here
         if ctx.needs_input_grad[6]:  # gaussian_opacities
             grad_gaussian_opacities = grad_gaussian_opacities_
         if ctx.needs_input_grad[7]:  # gaussian_features
             grad_gaussian_features = grad_gaussian_features_
 
-        
         # Return gradients for all inputs (None for non-differentiable)
         return (
             None,  # ray_origins

@@ -350,12 +350,7 @@ __global__ void volume_render_backward_kernel(
             
             // 1. Gradient w.r.t. mean (via PDF)
             float3 grad_mean_from_pdf = grad_gaussian_pdf_wrt_mean(pos, mean, scale, quat, pdf);
-            
-            // Scale by upstream gradient (element-wise)
-            float3 grad_mean_local;
-            grad_mean_local.x = grad_mean_from_pdf.x * grad_pdf;
-            grad_mean_local.y = grad_mean_from_pdf.y * grad_pdf;
-            grad_mean_local.z = grad_mean_from_pdf.z * grad_pdf;
+            float3 grad_mean_local = grad_mean_from_pdf * grad_pdf; // ∂L/∂alpha * ∂alpha/∂mean
             
             atomicAdd(&grad_means[g * 3 + 0], grad_mean_local.x);
             atomicAdd(&grad_means[g * 3 + 1], grad_mean_local.y);
@@ -383,10 +378,8 @@ __global__ void volume_render_backward_kernel(
                     jacobian[2] * grad_rho_wrt_dir.x + jacobian[5] * grad_rho_wrt_dir.y + jacobian[8] * grad_rho_wrt_dir.z
                 );
                 
-                // Scale by upstream gradient (element-wise)
-                grad_mean_from_rho.x *= grad_rho;
-                grad_mean_from_rho.y *= grad_rho;
-                grad_mean_from_rho.z *= grad_rho;
+                // Scale by upstream gradient
+                grad_mean_from_rho = grad_mean_from_rho * grad_rho;
                 
                 // Accumulate (add to the gradient from PDF path)
                 atomicAdd(&grad_means[g * 3 + 0], grad_mean_from_rho.x);
@@ -397,11 +390,7 @@ __global__ void volume_render_backward_kernel(
             // TODO: BELOW GRADIENT CALCULATIONS
             // 2. Gradient w.r.t. log-scale (via PDF)
             float3 grad_log_scale_local = grad_gaussian_pdf_wrt_log_scale(pos, mean, scale, quat, pdf);
-            
-            // Scale by upstream gradient (element-wise)
-            grad_log_scale_local.x *= grad_pdf;
-            grad_log_scale_local.y *= grad_pdf;
-            grad_log_scale_local.z *= grad_pdf;
+            grad_log_scale_local = grad_log_scale_local * grad_pdf;
             
             atomicAdd(&grad_log_scales[g * 3 + 0], grad_log_scale_local.x);
             atomicAdd(&grad_log_scales[g * 3 + 1], grad_log_scale_local.y);
@@ -413,12 +402,7 @@ __global__ void volume_render_backward_kernel(
             
             // 4. Gradient w.r.t. quaternion (via PDF)
             float4 grad_quat_local = grad_gaussian_pdf_wrt_quaternion(pos, mean, scale, quat, pdf);
-            
-            // Scale by upstream gradient (element-wise)
-            grad_quat_local.x *= grad_pdf;
-            grad_quat_local.y *= grad_pdf;
-            grad_quat_local.z *= grad_pdf;
-            grad_quat_local.w *= grad_pdf;
+            grad_quat_local = grad_quat_local * grad_pdf;
             
             atomicAdd(&grad_rotations[g * 4 + 0], grad_quat_local.x);
             atomicAdd(&grad_rotations[g * 4 + 1], grad_quat_local.y);
