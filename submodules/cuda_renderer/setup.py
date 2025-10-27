@@ -13,6 +13,7 @@ setup(
             sources=[
                 'src/bindings.cpp',
                 'src/ray_aabb.cu',
+                'src/volume_renderer_backward.cu',
                 'src/volume_renderer.cu',
                 'src/volume_renderer_analytic.cu',
             ],
