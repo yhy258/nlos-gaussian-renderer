@@ -34,7 +34,7 @@ cuda_renderer/*.egg-info/
 
 # Jupyter
 .ipynb_checkpoints/
-*.ipynb
+# *.ipynb
 
 # IDEs
 .vscode/
