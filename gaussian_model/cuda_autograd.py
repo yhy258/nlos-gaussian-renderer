@@ -135,6 +135,14 @@ class CUDARenderFunction(torch.autograd.Function):
             transmittance
         ) = ctx.saved_tensors
         
+        # Ensure input gradient tensors are contiguous
+        if grad_rho_density is not None:
+            grad_rho_density = grad_rho_density.contiguous()
+        if grad_density is not None:
+            grad_density = grad_density.contiguous()
+        if grad_transmittance is not None:
+            grad_transmittance = grad_transmittance.contiguous()
+        
         # Initialize gradients
         grad_gaussian_means = None
         grad_gaussian_scales = None
