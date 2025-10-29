@@ -14,7 +14,7 @@ from nlos_helpers import *
 from configs.default import Config, OptimizationParams
 from gaussian_model.gaussian_model import GaussianModel
 from gaussian_model.gaussian_utils import init_rand_points, sample_from_feasible_space_jittering
-from data.data_loader import load_zaragoza256_data
+from data_loader import load_zaragoza256_data
 
 
 def random_seed(args):
