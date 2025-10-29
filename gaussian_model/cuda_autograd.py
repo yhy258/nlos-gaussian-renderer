@@ -49,7 +49,7 @@ class CUDARenderFunction(torch.autograd.Function):
             density: [N_samples, N_rays] - Density field
             transmittance: [N_samples, N_rays] - Transmittance values
         """
-        if not CUDA_AVAILABLE:
+        if not CUDA_RENDERER_AVAILABLE:
             raise RuntimeError("CUDA renderer not available")
 
         # Call CUDA forward kernel (ensure contiguous for CUDA)
