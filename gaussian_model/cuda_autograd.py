@@ -206,7 +206,7 @@ class CUDARenderModule(nn.Module):
             sigma_threshold: Threshold for Gaussian AABB computation
         """
         super().__init__()
-        if not CUDA_AVAILABLE:
+        if not CUDA_RENDERER_AVAILABLE:
             raise RuntimeError("CUDA renderer not available")
         
         self.sigma_threshold = sigma_threshold
@@ -276,7 +276,8 @@ class CUDARenderModule(nn.Module):
         gaussian_scales = gaussian_model._scaling
         gaussian_rotations = gaussian_model._rotation
         gaussian_opacities = gaussian_model._opacity
-        gaussian_features = gaussian_model.get_features_dc.squeeze(1)
+        gaussian_features = gaussian_model.get_features.squeeze(-1)
+        # gaussian_features = gaussian_model.get_features_dc.squeeze(1)
         
         # Call custom autograd function
         rho_density, density, transmittance = CUDARenderFunction.apply(
@@ -324,6 +325,6 @@ def create_cuda_render_module(sigma_threshold: float = 3.0) -> Optional[CUDARend
     Returns:
         CUDARenderModule if CUDA available, None otherwise
     """
-    if not CUDA_AVAILABLE:
+    if not CUDA_RENDERER_AVAILABLE:
         return None
     return CUDARenderModule(sigma_threshold=sigma_threshold)

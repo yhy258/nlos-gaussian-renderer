@@ -39,7 +39,7 @@ class Config:
         self.rendering_type = 'netf'
         
         ## CUDA rendering
-        self.use_cuda_renderer = False  # Set to True to use CUDA-accelerated ray-based rendering
+        self.use_cuda_renderer = True  # Set to True to use CUDA-accelerated ray-based rendering
 
         ## evaluation
         self.eval_resolution = 256

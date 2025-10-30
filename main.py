@@ -146,7 +146,7 @@ def warmup_learn_func(args, optim_args, model, data_kwargs, optim_kwargs, device
     while optim_kwargs['current_iter'] <= optim_args.warmup_iter:
         m, n = next(pair_generator)
         model.update_learning_rate(optim_kwargs['current_iter'])
-        model.optimizer.zero_grad()
+        # model.optimizer.zero_grad()
         optim_kwargs['m'], optim_kwargs['n'] = m, n
         loss, equal_loss = compute_loss(args, model, data_kwargs, optim_kwargs, device)
         if optim_args.regularization:
@@ -201,7 +201,7 @@ def learn_func(args, optim_args, model, data_kwargs, optim_kwargs, device, gpu_v
     def learn_one_iter(m, n):
         vram_log = ""
         model.update_learning_rate(optim_kwargs['current_iter'])
-        model.optimizer.zero_grad()
+        # model.optimizer.zero_grad()
         optim_kwargs['m'], optim_kwargs['n'] = m, n
         loss, equal_loss = compute_loss(args, model, data_kwargs, optim_kwargs, device)
         if optim_args.regularization:
@@ -213,6 +213,13 @@ def learn_func(args, optim_args, model, data_kwargs, optim_kwargs, device, gpu_v
         loss.backward()
 
         with torch.no_grad():
+
+            if optim_args.mcmc_densification_flag:
+                if optim_kwargs['current_iter'] < optim_args.densify_until_iter and optim_kwargs['current_iter'] > optim_args.densify_from_iter and optim_kwargs['current_iter'] % optim_args.densification_interval == 0:
+                    dead_mask = (model.get_opacity <= 0.005).squeeze(-1)
+                    model.relocate_gs(dead_mask=dead_mask)
+                    model.add_new_gs(cap_max=optim_args.cap_max)
+            
             model.optimizer.step()
             model.optimizer.zero_grad(set_to_none = True)
             ######### (FUTURE WORK)
@@ -242,12 +249,6 @@ def learn_func(args, optim_args, model, data_kwargs, optim_kwargs, device, gpu_v
             optim_kwargs['current_iter'] += 1
             if optim_kwargs['current_iter'] % 1000:
                 model.oneupSHdegree()
-
-            if optim_args.mcmc_densification_flag:
-                if optim_kwargs['current_iter'] < optim_args.densify_until_iter and optim_kwargs['current_iter'] > optim_args.densify_from_iter and optim_kwargs['current_iter'] % optim_args.densification_interval == 0:
-                    dead_mask = (model.get_opacity <= 0.005).squeeze(-1)
-                    model.relocate_gs(dead_mask=dead_mask)
-                    model.add_new_gs(cap_max=optim_args.cap_max)
 
 
         if optim_kwargs['current_iter'] > optim_kwargs['total_iter']:

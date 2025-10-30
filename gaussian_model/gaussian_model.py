@@ -229,7 +229,7 @@ class GaussianModel:
 
         # Initialize parameters
         self._mu = nn.Parameter(fused_point_cloud.requires_grad_(True)) # N x 3
-        self._features_dc = nn.Parameter(features[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) # N x 1 x K
+        self._features_dc = nn.Parameter(features[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) # N x K x 1
         self._features_rest = nn.Parameter(features[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True))
         self._scaling = nn.Parameter(scales.requires_grad_(True)) # N by 3
         self._rotation = nn.Parameter(rots.requires_grad_(True)) # N by 4
