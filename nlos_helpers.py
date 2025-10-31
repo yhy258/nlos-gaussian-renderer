@@ -19,9 +19,10 @@ from gaussian_model.gaussian_model import GaussianModel
 
 # Try to import CUDA renderer
 try:
-    from gaussian_model.cuda_autograd import create_cuda_render_module
+    from gaussian_model.cuda_autograd import create_cuda_render_module, create_cuda_albedo_render_module
     CUDA_RENDERER_AVAILABLE = True
     CUDA_RENDERER = create_cuda_render_module()
+    CUDA_ALBEDO_RENDERER = create_cuda_albedo_render_module()
 except ImportError:
     CUDA_RENDERER_AVAILABLE = False
     CUDA_RENDERER = None
@@ -37,13 +38,60 @@ def save_model(args, model, current_iter):
     torch.save(params, model_name)
     return 0
 
+@torch.no_grad()
 def gaussian2volume(args, model: GaussianModel, data_kwargs, camera_pos, resolution=128, mode='voxel'):
-    with torch.no_grad():
-        input_points, I1, I2, num_r, dtheta, dphi, theta_min, theta_max, phi_min, phi_max = spherical_sample_histogram(args, data_kwargs, camera_pos)
-        input_points_ori = input_points[:, 0:3] # spatial coordinate
+    input_points, I1, I2, num_r, dtheta, dphi, theta_min, theta_max, phi_min, phi_max = spherical_sample_histogram(args, data_kwargs, camera_pos)
+    input_points_ori = input_points[:, 0:3] # spatial coordinate
+    if args.use_cuda_renderer and CUDA_RENDERER is not None:
+        theta_vals = input_points[:, 3]
+        phi_vals = input_points[:, 4]
+
+        theta_min = theta_vals.min().item()
+        theta_max = theta_vals.max().item()
+        phi_min = phi_vals.min().item()
+        phi_max = phi_vals.max().item()
+
+        r_min = I1 * data_kwargs['c'] * data_kwargs['deltaT']
+        r_max = I2 * data_kwargs['c'] * data_kwargs['deltaT']
+        _, _, rho_density, density, transmittance = CUDA_RENDERER(
+            gaussian_model=model,
+            camera_pos=camera_pos,
+            theta_range=(theta_min, theta_max),
+            phi_range=(phi_min, phi_max),
+            r_range=(r_min, r_max),
+            num_theta=args.num_sampling_points,
+            num_phi=args.num_sampling_points,
+            num_r=num_r,
+            c=data_kwargs['c'],
+            deltaT=data_kwargs['deltaT'],
+            scaling_modifier=args.scaling_modifier,
+            use_occlusion=args.occlusion,
+        )
+        albedo = CUDA_ALBEDO_RENDERER(
+            gaussian_model=model,
+            camera_pos=camera_pos,
+            theta_range=(theta_min, theta_max),
+            phi_range=(phi_min, phi_max),
+            r_range=(r_min, r_max),
+            num_theta=args.num_sampling_points,
+            num_phi=args.num_sampling_points,
+            num_r=num_r,
+            c=data_kwargs['c'],
+            deltaT=data_kwargs['deltaT'],
+            scaling_modifier=args.scaling_modifier,
+            use_occlusion=args.occlusion,
+        )
+
+        density = density.T.reshape(num_r, args.num_sampling_points, args.num_sampling_points)
+        density = density.reshape(-1)
+        
+        albedo = albedo.T.reshape(num_r, args.num_sampling_points, args.num_sampling_points)
+        albedo = albedo.reshape(-1)
+    else:
         result, density, albedo = model.estimate_rho_w(input_points_ori, camera_pos, c=data_kwargs['c'], deltaT=data_kwargs['deltaT'], scaling_modifier=args.scaling_modifier, out_separately=True)
-        irregular_density = density.cpu().numpy()
-        irregular_albedo = albedo.cpu().numpy()
+
+    irregular_density = density.cpu().numpy()
+    irregular_albedo = albedo.cpu().numpy()
     irregular_points = input_points_ori.cpu().numpy()
 
 

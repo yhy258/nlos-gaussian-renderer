@@ -15,6 +15,226 @@ except ImportError:
     print("Warning: CUDA renderer not available")
 
 
+##### Only Albedo Rendering Function
+class CUDAAlbedoRenderFunction(torch.autograd.Function):
+    """
+    Autograd function for CUDA ray-based rendering.
+
+    Forward: Computes rendering result from Gaussians
+    Backward: Computes gradients w.r.t. Gaussian parameters
+    """
+
+    @staticmethod
+    def forward(
+        ctx,
+        ray_origins: torch.Tensor,          # [N_rays, 3]
+        ray_directions: torch.Tensor,       # [N_rays, 3]
+        t_samples: torch.Tensor,            # [N_samples]
+        gaussian_means: torch.Tensor,       # [N_gaussians, 3]
+        gaussian_scales: torch.Tensor,      # [N_gaussians, 3]
+        gaussian_rotations: torch.Tensor,   # [N_gaussians, 4]
+        gaussian_opacities: torch.Tensor,   # [N_gaussians, 1]
+        gaussian_features: torch.Tensor,    # [N_gaussians, K]
+        camera_pos: torch.Tensor,           # [3]
+        active_sh_degree: int,
+        c: float,
+        deltaT: float,
+        scaling_modifier: float,
+        use_occlusion: bool
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Forward pass: Render rays through Gaussians
+
+        Returns:
+            rho_density: [N_samples, N_rays] - Main rendering output
+            density: [N_samples, N_rays] - Density field
+            transmittance: [N_samples, N_rays] - Transmittance values
+        """
+        if not CUDA_RENDERER_AVAILABLE:
+            raise RuntimeError("CUDA renderer not available")
+
+        # Call CUDA forward kernel (ensure contiguous for CUDA)
+        accum_albedo_out, gaussian_bboxes, gaussian_filter = _C.albedo_render_rays(
+            ray_origins.contiguous(),
+            ray_directions.contiguous(),
+            t_samples.contiguous(),
+            gaussian_means.contiguous(),
+            gaussian_scales.contiguous(),
+            gaussian_rotations.contiguous(),
+            gaussian_opacities.contiguous(),
+            gaussian_features.contiguous(),
+            camera_pos.contiguous(),
+            active_sh_degree,
+            c,
+            deltaT,
+            scaling_modifier,
+            use_occlusion
+        )
+
+        # Save ORIGINAL tensors for backward (NOT contiguous copies!)
+        ctx.save_for_backward(
+            ray_origins,
+            ray_directions,
+            t_samples,
+            gaussian_filter,
+            gaussian_means,
+            gaussian_scales,
+            gaussian_rotations,
+            gaussian_opacities,
+            gaussian_features,
+            camera_pos,
+            accum_albedo_out,
+        )
+        ctx.active_sh_degree = active_sh_degree
+        ctx.c = c
+        ctx.deltaT = deltaT
+        ctx.scaling_modifier = scaling_modifier
+        ctx.use_occlusion = use_occlusion
+
+        return accum_albedo_out
+
+    @staticmethod
+    def backward(ctx, grad_rho_density, grad_density, grad_transmittance):
+        """
+        Backward pass: Compute gradients w.r.t. Gaussian parameters
+
+        Args:
+            grad_rho_density: [N_samples, N_rays] - Gradient from loss
+            grad_density: [N_samples, N_rays] - Usually None
+            grad_transmittance: [N_samples, N_rays] - Usually None
+
+        Returns:
+            Gradients for all forward inputs (None for non-learnable params)
+        """
+
+
+        # Return gradients for all inputs (None for non-differentiable)
+        return (
+            None,  # ray_origins
+            None,  # ray_directions
+            None,  # t_samples
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,  # camera_pos
+            None,  # active_sh_degree
+            None,  # c
+            None,  # deltaT
+            None,  # scaling_modifier
+            None,  # use_occlusion
+        )
+
+class CUDAAlbedoRenderModule(nn.Module):
+    """
+    PyTorch Module wrapper for CUDA rendering with automatic differentiation.
+    
+    This provides a clean interface for using the CUDA renderer in training loops
+    with full gradient support.
+    """
+    
+    def __init__(self, sigma_threshold: float = 3.0):
+        """
+        Args:
+            sigma_threshold: Threshold for Gaussian AABB computation
+        """
+        super().__init__()
+        if not CUDA_RENDERER_AVAILABLE:
+            raise RuntimeError("CUDA renderer not available")
+        
+        self.sigma_threshold = sigma_threshold
+    
+    def forward(
+        self,
+        gaussian_model,
+        camera_pos: torch.Tensor,
+        theta_range: Tuple[float, float],
+        phi_range: Tuple[float, float],
+        r_range: Tuple[float, float],
+        num_theta: int,
+        num_phi: int,
+        num_r: int,
+        c: float,
+        deltaT: float,
+        scaling_modifier: float = 1.0,
+        use_occlusion: bool = True
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Forward pass through CUDA renderer
+        
+        Args:
+            gaussian_model: GaussianModel with learnable parameters
+            camera_pos: [3] Camera position
+            theta_range: (min, max) theta angles
+            phi_range: (min, max) phi angles
+            r_range: (min, max) radial distances
+            num_theta: Number of theta samples
+            num_phi: Number of phi samples
+            num_r: Number of radial samples
+            c: Speed of light
+            deltaT: Time interval
+            scaling_modifier: Gaussian scale modifier
+            use_occlusion: Whether to use transmittance
+        
+        Returns:
+            result: [num_r, num_theta, num_phi] rendered volume
+            pred_histogram: [num_r] integrated histogram
+        """
+        device = camera_pos.device
+        
+        # Generate rays
+        theta = torch.linspace(theta_range[0], theta_range[1], num_theta, device=device)
+        phi = torch.linspace(phi_range[0], phi_range[1], num_phi, device=device)
+        
+        theta_grid, phi_grid = torch.meshgrid(theta, phi, indexing='ij')
+        theta_flat = theta_grid.reshape(-1)
+        phi_flat = phi_grid.reshape(-1)
+        
+        num_rays = theta_flat.shape[0]
+        
+        # Ray directions in Cartesian coordinates
+        ray_dirs = torch.stack([
+            torch.sin(theta_flat) * torch.cos(phi_flat),
+            torch.sin(theta_flat) * torch.sin(phi_flat),
+            torch.cos(theta_flat)
+        ], dim=1)  # [num_rays, 3]
+        
+        ray_origins = camera_pos.unsqueeze(0).expand(num_rays, 3)
+        
+        # Radial samples
+        t_samples = torch.linspace(r_range[0], r_range[1], num_r, device=device)
+        
+        # Get Gaussian parameters (with gradients!)
+        gaussian_means = gaussian_model.get_mu
+        gaussian_scales = gaussian_model._scaling
+        gaussian_rotations = gaussian_model._rotation
+        gaussian_opacities = gaussian_model._opacity
+        gaussian_features = gaussian_model.get_features.squeeze(-1)
+        # gaussian_features = gaussian_model.get_features_dc.squeeze(1)
+        
+        # Call custom autograd function
+        albedo_accum = CUDAAlbedoRenderFunction.apply(
+            ray_origins,
+            ray_dirs,
+            t_samples,
+            gaussian_means,
+            gaussian_scales,
+            gaussian_rotations,
+            gaussian_opacities,
+            gaussian_features,
+            camera_pos,
+            gaussian_model.active_sh_degree,
+            c,
+            deltaT,
+            scaling_modifier,
+            use_occlusion
+        )
+        
+        # Reshape and apply geometric attenuation
+        return albedo_accum
+
+
 class CUDARenderFunction(torch.autograd.Function):
     """
     Autograd function for CUDA ray-based rendering.
@@ -312,8 +532,22 @@ class CUDARenderModule(nn.Module):
         
         pred_histogram = torch.sum(result, dim=(1, 2)) * dtheta * dphi
         
-        return result, pred_histogram
+        return result, pred_histogram, rho_density, density, transmittance
 
+
+def create_cuda_albedo_render_module(sigma_threshold: float = 3.0) -> Optional[CUDAAlbedoRenderModule]:
+    """
+    Factory function to create a CUDA albedo render module
+    
+    Args:
+        sigma_threshold: AABB threshold
+    
+    Returns:
+        CUDAAlbedoRenderModule if CUDA available, None otherwise
+    """
+    if not CUDA_RENDERER_AVAILABLE:
+        return None
+    return CUDAAlbedoRenderModule(sigma_threshold=sigma_threshold)
 
 def create_cuda_render_module(sigma_threshold: float = 3.0) -> Optional[CUDARenderModule]:
     """

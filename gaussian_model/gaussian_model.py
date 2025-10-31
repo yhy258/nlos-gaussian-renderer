@@ -221,7 +221,7 @@ class GaussianModel:
             init_gaussian_num = points.shape[0]
             dist2 = (pmax_x - pmin_x) / (init_gaussian_num + 1e-9)
             dist2 = torch.clamp_min(torch.tensor(dist2, dtype=torch.float, device=self.device), 0.0000001)
-        scales = torch.log(torch.sqrt(dist2))[...,None].repeat(fused_point_cloud.shape[0], 3)
+        scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 3)
         rots = torch.zeros((fused_point_cloud.shape[0], 4), dtype=torch.float, device=self.device)
         rots[:, 0] = 1
 

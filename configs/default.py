@@ -12,7 +12,7 @@ class Config:
         self.gt_times = 100
         self.save_fig = True
         self.cuda = 0
-        self.occlusion = False
+        self.occlusion = True
         self.epoches = 1000
         self.start = 100
         self.end = 300
@@ -29,7 +29,7 @@ class Config:
 
         #### Gaussian Instance Init
         self.sh_degree = 3
-        self.init_gaussian_num = 2000
+        self.init_gaussian_num = 10000
         self.init_sample_margin = 0.1
         self.space_carving_init = True
         self.carving_volume_size = 64
@@ -75,8 +75,8 @@ class OptimizationParams:
         self.lambda_dssim = 0.2
 
         ##### Densitification params
-        self.mcmc_densification_flag = False
-        self.densification_interval = 100
+        self.mcmc_densification_flag = True
+        self.densification_interval = 1000
         self.opacity_reset_interval = 3000
         self.densify_from_iter = 500
         self.densify_until_iter = 25_000
