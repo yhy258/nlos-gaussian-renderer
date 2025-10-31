@@ -9,10 +9,11 @@
 
 #define THREADS_PER_BLOCK 256
 #define MAX_GAUSSIANS_PER_RAY 256
-
+#define MAX_T_SAMPLES_SHARED 512  // Shared memory limit for t_samples
 
 // Unified volume rendering kernel with integrated transmittance
 // Single-pass rendering for efficiency and correctness
+// OPTIMIZED VERSION with Shared Memory
 __global__ void volume_render_kernel(
     const float* __restrict__ ray_origins,        // [N_rays, 3]
     const float* __restrict__ ray_directions,     // [N_rays, 3]
@@ -37,11 +38,42 @@ __global__ void volume_render_kernel(
     float* __restrict__ density_out,              // [N_rays, N_samples] - for debugging
     float* __restrict__ transmittance_out         // [N_rays, N_samples] - for debugging
 ) {
+    // ============================================================
+    // SHARED MEMORY OPTIMIZATION
+    // ============================================================
+    // Shared memory for t_samples (all rays use the same samples)
+    __shared__ float s_t_samples[MAX_T_SAMPLES_SHARED];
+    
+    // Shared memory for camera position (all rays use the same camera)
+    __shared__ float3 s_cam_pos;
+    
+    // Cooperative loading: all threads in block help load t_samples
+    int tid = threadIdx.x;
+    int load_iterations = (N_samples + blockDim.x - 1) / blockDim.x;
+    
+    for (int iter = 0; iter < load_iterations; iter++) {
+        int sample_idx = tid + iter * blockDim.x;
+        if (sample_idx < N_samples && sample_idx < MAX_T_SAMPLES_SHARED) {
+            s_t_samples[sample_idx] = t_samples[sample_idx];
+        }
+    }
+    
+    // First thread loads camera position
+    if (tid == 0) {
+        s_cam_pos = make_float3(camera_pos[0], camera_pos[1], camera_pos[2]);
+    }
+    
+    // Synchronize to ensure all shared memory is loaded
+    __syncthreads();
+    
+    // ============================================================
+    // PER-RAY COMPUTATION
+    // ============================================================
     int ray_idx = blockIdx.x * blockDim.x + threadIdx.x;
     
     if (ray_idx >= N_rays) return;
     
-    // Load ray
+    // Load ray from global memory (coalesced access)
     float3 ray_o = make_float3(
         ray_origins[ray_idx * 3 + 0],
         ray_origins[ray_idx * 3 + 1],
@@ -54,7 +86,8 @@ __global__ void volume_render_kernel(
         ray_directions[ray_idx * 3 + 2]
     );
     
-    float3 cam_pos = make_float3(camera_pos[0], camera_pos[1], camera_pos[2]);
+    // Use cached camera position from shared memory
+    float3 cam_pos = s_cam_pos;
     
     // Get filtered Gaussians for this ray
     int num_gaussians = gaussian_filter[ray_idx * (MAX_GAUSSIANS_PER_RAY + 1)];
@@ -64,8 +97,10 @@ __global__ void volume_render_kernel(
     float T = 1.0f;
 
     // March along ray (sequential - correct volume rendering!)
+    // Use shared memory for t_samples (faster access)
     for (int s = 0; s < N_samples; s++) {
-        float t = t_samples[s];
+        // Read from shared memory instead of global memory
+        float t = (s < MAX_T_SAMPLES_SHARED) ? s_t_samples[s] : t_samples[s];
         float3 pos = ray_o + ray_d * t;
         
         // Accumulate contributions from ALL Gaussians at this sample
