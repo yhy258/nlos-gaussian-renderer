@@ -22,6 +22,10 @@ class CUDARenderFunction(torch.autograd.Function):
 
     Forward: Computes rendering result from Gaussians
     Backward: Computes gradients w.r.t. Gaussian parameters
+    
+    Supports two memory modes:
+    - 'shared': Optimized with shared memory (default)
+    - 'global': Baseline with global memory only
     """
 
     @staticmethod
@@ -40,10 +44,14 @@ class CUDARenderFunction(torch.autograd.Function):
         c: float,
         deltaT: float,
         scaling_modifier: float,
-        use_occlusion: bool
+        use_occlusion: bool,
+        memory_mode: str = 'shared'         # 'shared' or 'global'
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Forward pass: Render rays through Gaussians
+
+        Args:
+            memory_mode: 'shared' (optimized) or 'global' (baseline)
 
         Returns:
             rho_density: [N_samples, N_rays] - Main rendering output
@@ -53,8 +61,16 @@ class CUDARenderFunction(torch.autograd.Function):
         if not CUDA_RENDERER_AVAILABLE:
             raise RuntimeError("CUDA renderer not available")
 
+        # Select kernel based on memory mode
+        if memory_mode == 'shared':
+            render_fn = _C.render_rays_shared
+        elif memory_mode == 'global':
+            render_fn = _C.render_rays_global
+        else:
+            raise ValueError(f"Invalid memory_mode: {memory_mode}. Use 'shared' or 'global'")
+
         # Call CUDA forward kernel (ensure contiguous for CUDA)
-        rho_density, density, transmittance, gaussian_bboxes, gaussian_filter = _C.render_rays(
+        rho_density, density, transmittance, gaussian_bboxes, gaussian_filter = render_fn(
             ray_origins.contiguous(),
             ray_directions.contiguous(),
             t_samples.contiguous(),
@@ -315,6 +331,61 @@ class CUDARenderModule(nn.Module):
         
         return result, pred_histogram, rho_density, density, transmittance
 
+class CUDARenderforBenchMark(CUDARenderModule):
+    def __init__(self, sigma_threshold: float = 3.0, memory_mode: str = 'shared'):
+        """
+        Args:
+            sigma_threshold: AABB threshold
+            memory_mode: 'shared' (optimized) or 'global' (baseline)
+        """
+        super().__init__(sigma_threshold)
+        self.memory_mode = memory_mode
+    
+    def forward(
+            self, 
+            ray_origins, ray_directions, t_samples,
+                gaussian_means, gaussian_scales, gaussian_rotations,
+                gaussian_opacities, gaussian_features, camera_pos,
+                active_sh_degree, c, deltaT, scaling_modifier, use_occlusion
+            ):
+
+        rho_density, density, transmittance = CUDARenderFunction.apply(
+            ray_origins,
+            ray_directions,
+            t_samples,
+            gaussian_means,
+            gaussian_scales,
+            gaussian_rotations,
+            gaussian_opacities,
+            gaussian_features,
+            camera_pos,
+            active_sh_degree,
+            c,
+            deltaT,
+            scaling_modifier,
+            use_occlusion,
+            self.memory_mode  # Pass memory mode
+        )
+        num_r = ray_directions.shape[0]
+        nt = t_samples.shape[0]
+        # Reshape and apply geometric attenuation
+        result = rho_density.T.reshape(nt, -1, 1)
+        
+        # Geometric attenuation: sin(theta) / r^2
+        distance = t_samples.view(-1, 1, 1)
+
+        
+        result = result / (distance ** 2 + 1e-8) 
+        
+        
+        pred_histogram = torch.sum(result, dim=(1, 2))
+        
+
+
+        return rho_density
+        
+
+
 def create_cuda_render_module(sigma_threshold: float = 3.0) -> Optional[CUDARenderModule]:
     """
     Factory function to create a CUDA render module
@@ -328,3 +399,18 @@ def create_cuda_render_module(sigma_threshold: float = 3.0) -> Optional[CUDARend
     if not CUDA_RENDERER_AVAILABLE:
         return None
     return CUDARenderModule(sigma_threshold=sigma_threshold)
+
+def create_cuda_render_benchmark_module(sigma_threshold: float = 3.0, memory_mode: str = 'shared') -> Optional[CUDARenderModule]:
+    """
+    Factory function to create a CUDA render module for benchmarking
+    
+    Args:
+        sigma_threshold: AABB threshold
+        memory_mode: 'shared' (optimized) or 'global' (baseline)
+    
+    Returns:
+        CUDARenderforBenchMark if CUDA available, None otherwise
+    """
+    if not CUDA_RENDERER_AVAILABLE:
+        return None
+    return CUDARenderforBenchMark(sigma_threshold=sigma_threshold, memory_mode=memory_mode)

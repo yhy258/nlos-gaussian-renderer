@@ -53,7 +53,13 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Filter Gaussians per ray using AABB intersection (CUDA)");
     
     m.def("render_rays", &render_rays,
-          "Per-ray volume rendering with transmittance (CUDA)");
+          "Per-ray volume rendering with transmittance (CUDA) - Default: Shared Memory");
+    
+    m.def("render_rays_shared", &render_rays_shared,
+          "Per-ray volume rendering with SHARED MEMORY optimization (CUDA)");
+    
+    m.def("render_rays_global", &render_rays_global,
+          "Per-ray volume rendering with GLOBAL MEMORY baseline (CUDA)");
     
     m.def("render_rays_analytic", &render_rays_analytic,
           "Section-based analytic volume rendering (CUDA)");

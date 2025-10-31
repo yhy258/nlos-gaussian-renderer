@@ -9,7 +9,7 @@ import numpy as np
 
 # Import your CUDA renderer
 try:
-    from submodules.cuda_renderer import render_rays
+    from gaussian_model.cuda_autograd import create_cuda_render_benchmark_module
     print("✓ CUDA renderer imported successfully")
 except ImportError as e:
     print(f"✗ Failed to import CUDA renderer: {e}")
@@ -17,7 +17,7 @@ except ImportError as e:
     exit(1)
 
 
-def benchmark_rendering(n_rays, n_samples, n_gaussians, n_warmup=5, n_iterations=20):
+def benchmark_rendering(n_rays, n_samples, n_gaussians, memory_mode='shared', n_warmup=5, n_iterations=20):
     """
     Benchmark CUDA rendering performance
     
@@ -25,6 +25,7 @@ def benchmark_rendering(n_rays, n_samples, n_gaussians, n_warmup=5, n_iterations
         n_rays: Number of rays
         n_samples: Number of samples per ray
         n_gaussians: Number of Gaussians
+        memory_mode: 'shared' or 'global'
         n_warmup: Number of warmup iterations
         n_iterations: Number of benchmark iterations
     """
@@ -32,6 +33,7 @@ def benchmark_rendering(n_rays, n_samples, n_gaussians, n_warmup=5, n_iterations
     
     print(f"\n{'='*60}")
     print(f"Benchmark Configuration:")
+    print(f"  Memory Mode: {memory_mode.upper()}")
     print(f"  Rays: {n_rays}")
     print(f"  Samples per ray: {n_samples}")
     print(f"  Gaussians: {n_gaussians}")
@@ -66,12 +68,14 @@ def benchmark_rendering(n_rays, n_samples, n_gaussians, n_warmup=5, n_iterations
     use_occlusion = True
     
     print("Data generated. Starting benchmark...\n")
+    renderer = create_cuda_render_benchmark_module(memory_mode=memory_mode)
+
     
     # Warmup
     print(f"Warmup ({n_warmup} iterations)...")
     for i in range(n_warmup):
         with torch.no_grad():
-            _ = render_rays(
+            _ = renderer(
                 ray_origins, ray_directions, t_samples,
                 gaussian_means, gaussian_scales, gaussian_rotations,
                 gaussian_opacities, gaussian_features, camera_pos,
@@ -89,7 +93,7 @@ def benchmark_rendering(n_rays, n_samples, n_gaussians, n_warmup=5, n_iterations
         start = time.perf_counter()
         
         with torch.no_grad():
-            output = render_rays(
+            output = renderer(
                 ray_origins, ray_directions, t_samples,
                 gaussian_means, gaussian_scales, gaussian_rotations,
                 gaussian_opacities, gaussian_features, camera_pos,
@@ -130,7 +134,7 @@ def benchmark_rendering(n_rays, n_samples, n_gaussians, n_warmup=5, n_iterations
     
     for i in range(n_iterations):
         # Forward pass
-        output = render_rays(
+        output = renderer(
             ray_origins, ray_directions, t_samples,
             gaussian_means, gaussian_scales, gaussian_rotations,
             gaussian_opacities, gaussian_features, camera_pos,
@@ -190,9 +194,10 @@ def benchmark_rendering(n_rays, n_samples, n_gaussians, n_warmup=5, n_iterations
 
 
 if __name__ == "__main__":
-    print("\n" + "="*60)
+    print("\n" + "="*70)
     print("CUDA Shared Memory Optimization Benchmark")
-    print("="*60)
+    print("Comparing GLOBAL vs SHARED memory implementations")
+    print("="*70)
     
     # Check CUDA availability
     if not torch.cuda.is_available():
@@ -209,34 +214,93 @@ if __name__ == "__main__":
         (1024, 128, 100),    # Small
         (2048, 256, 200),    # Medium
         (4096, 256, 500),    # Large
+        (4096, 300, 10000),  # Practical
     ]
     
-    results = []
+    results_global = []
+    results_shared = []
+    
     for n_rays, n_samples, n_gaussians in configs:
-        result = benchmark_rendering(
+        print("\n" + "="*70)
+        print(f"Configuration: {n_rays} rays × {n_samples} samples × {n_gaussians} gaussians")
+        print("="*70)
+        
+        # Benchmark GLOBAL memory version
+        print("\n[1/2] Running GLOBAL MEMORY version...")
+        result_global = benchmark_rendering(
             n_rays=n_rays,
             n_samples=n_samples,
             n_gaussians=n_gaussians,
+            memory_mode='global',
             n_warmup=5,
             n_iterations=20
         )
-        results.append({
+        results_global.append({
             'config': (n_rays, n_samples, n_gaussians),
-            'result': result
+            'result': result_global
         })
+        
+        # Benchmark SHARED memory version
+        print("\n[2/2] Running SHARED MEMORY version...")
+        result_shared = benchmark_rendering(
+            n_rays=n_rays,
+            n_samples=n_samples,
+            n_gaussians=n_gaussians,
+            memory_mode='shared',
+            n_warmup=5,
+            n_iterations=20
+        )
+        results_shared.append({
+            'config': (n_rays, n_samples, n_gaussians),
+            'result': result_shared
+        })
+        
+        # Immediate comparison
+        speedup_forward = result_global['forward_mean'] / result_shared['forward_mean']
+        speedup_backward = result_global['backward_mean'] / result_shared['backward_mean']
+        speedup_total = result_global['total_mean'] / result_shared['total_mean']
+        
+        print(f"\n{'⚡ SPEEDUP SUMMARY':<30}")
+        print(f"  Forward:  {speedup_forward:.2f}x faster")
+        print(f"  Backward: {speedup_backward:.2f}x faster")
+        print(f"  Total:    {speedup_total:.2f}x faster")
     
-    # Summary
-    print("\n" + "="*60)
-    print("SUMMARY")
-    print("="*60)
-    print(f"{'Config':<30} {'Forward (ms)':<15} {'Backward (ms)':<15} {'Total (ms)'}")
-    print("-"*60)
-    for item in results:
-        cfg = item['config']
-        res = item['result']
+    # Final Summary
+    print("\n\n" + "="*90)
+    print("FINAL COMPARISON SUMMARY")
+    print("="*90)
+    print(f"{'Config':<20} {'Global (ms)':<15} {'Shared (ms)':<15} {'Speedup':<15} {'Type'}")
+    print("-"*90)
+    
+    for i, (item_g, item_s) in enumerate(zip(results_global, results_shared)):
+        cfg = item_g['config']
+        res_g = item_g['result']
+        res_s = item_s['result']
         config_str = f"{cfg[0]}x{cfg[1]}x{cfg[2]}"
-        print(f"{config_str:<30} {res['forward_mean']:<15.2f} {res['backward_mean']:<15.2f} {res['total_mean']:.2f}")
-    print("="*60)
+        
+        # Forward pass
+        speedup_fwd = res_g['forward_mean'] / res_s['forward_mean']
+        print(f"{config_str:<20} {res_g['forward_mean']:<15.2f} {res_s['forward_mean']:<15.2f} {speedup_fwd:<15.2f} Forward")
+        
+        # Backward pass
+        speedup_bwd = res_g['backward_mean'] / res_s['backward_mean']
+        print(f"{'':20} {res_g['backward_mean']:<15.2f} {res_s['backward_mean']:<15.2f} {speedup_bwd:<15.2f} Backward")
+        
+        # Total
+        speedup_tot = res_g['total_mean'] / res_s['total_mean']
+        print(f"{'':20} {res_g['total_mean']:<15.2f} {res_s['total_mean']:<15.2f} {speedup_tot:<15.2f} TOTAL")
+        
+        if i < len(results_global) - 1:
+            print("-"*90)
     
+    print("="*90)
+    
+    # Average speedup
+    avg_speedup = sum(
+        results_global[i]['result']['total_mean'] / results_shared[i]['result']['total_mean']
+        for i in range(len(results_global))
+    ) / len(results_global)
+    
+    print(f"\n🎉 Average Speedup: {avg_speedup:.2f}x")
     print("\n✓ Benchmark complete!")
 
