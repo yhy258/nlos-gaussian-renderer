@@ -54,9 +54,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     
     m.def("render_rays", &render_rays,
           "Per-ray volume rendering with transmittance (CUDA)");
-
-    m.def("albedo_render_rays", &albedo_render_rays,
-            "Per-ray albedo rendering (CUDA)");
     
     m.def("render_rays_analytic", &render_rays_analytic,
           "Section-based analytic volume rendering (CUDA)");
