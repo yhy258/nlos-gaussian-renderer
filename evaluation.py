@@ -9,7 +9,7 @@ def construct_eval_coords(args, data_kwargs):
     zv = np.linspace(pmin[2], pmax[2], args.eval_resolution)
 
     coords = np.stack(np.meshgrid(xv, yv, zv, indexing='ij'),-1)
-    coords = coords.reshape([-1,3])
+    # coords = coords.reshape([-1,3])
     coords = torch.from_numpy(coords.astype(np.float32)).to(data_kwargs['camera_grid_positions'].device)
     return coords
 

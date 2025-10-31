@@ -315,21 +315,6 @@ class CUDARenderModule(nn.Module):
         
         return result, pred_histogram, rho_density, density, transmittance
 
-
-def create_cuda_albedo_render_module(sigma_threshold: float = 3.0) -> Optional[CUDAAlbedoRenderModule]:
-    """
-    Factory function to create a CUDA albedo render module
-    
-    Args:
-        sigma_threshold: AABB threshold
-    
-    Returns:
-        CUDAAlbedoRenderModule if CUDA available, None otherwise
-    """
-    if not CUDA_RENDERER_AVAILABLE:
-        return None
-    return CUDAAlbedoRenderModule(sigma_threshold=sigma_threshold)
-
 def create_cuda_render_module(sigma_threshold: float = 3.0) -> Optional[CUDARenderModule]:
     """
     Factory function to create a CUDA render module

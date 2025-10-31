@@ -258,17 +258,17 @@ def learn_func(args, optim_args, model, data_kwargs, optim_kwargs, eval_kwargs, 
             if optim_kwargs['current_iter'] % 1000 == 0:
                 model.oneupSHdegree()
 
-        ### save losses:
-        histogram_losses_2d[m, n] = loss.item()
-        histogram_eq_losses_2d[m, n] = equal_loss.item()
-        if optim_kwargs['current_iter'] % M*N == 0:
-            ## Save Figure: histogram_losses_2d and histogram_eq_losses_2d.
-            plt.imshow(histogram_losses_2d)
-            plt.title("2D histogram loss figure (MSE)")
-            plt.colorbar()
-            os.makedirs(f'./figure/', exist_ok=True)
-            plt.savefig(f'./figure/' + "hist_loss2d" + str(optim_kwargs['current_iter']))
-            plt.close()
+        ### TODO: save losses
+        # histogram_losses_2d[m, n] = loss.item()
+        # histogram_eq_losses_2d[m, n] = equal_loss.item()
+        # if optim_kwargs['current_iter'] % M*N == 0:
+        #     ## Save Figure: histogram_losses_2d and histogram_eq_losses_2d.
+        #     plt.imshow(histogram_losses_2d)
+        #     plt.title("2D histogram loss figure (MSE)")
+        #     plt.colorbar()
+        #     os.makedirs(f'./figure/', exist_ok=True)
+        #     plt.savefig(f'./figure/' + "hist_loss2d" + str(optim_kwargs['current_iter']))
+        #     plt.close()
 
 
         if optim_kwargs['current_iter'] > optim_kwargs['total_iter']:

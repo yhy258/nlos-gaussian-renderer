@@ -1,3 +1,4 @@
+import torch
 import numpy as np
 import scipy.io as sio
 import cv2
@@ -6,6 +7,10 @@ import matplotlib.pyplot as plt
 
 
 def max_projected_imshow(save_dir, density, albedo):
+    if isinstance(density, torch.Tensor):
+        density = density.cpu().detach().numpy()
+    if isinstance(albedo, torch.Tensor):
+        albedo = albedo.cpu().detach().numpy()
     XOY_density = np.max(density, axis = 0)
     plt.imshow(XOY_density)
     plt.colorbar()

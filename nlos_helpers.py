@@ -247,7 +247,7 @@ def gaussian_transient_rendering_cuda(args, model, data_kwargs, input_points, cu
     scaling_modifier: float = 1.0,
     use_occlusion: bool = True
     """
-    result_3d, pred_histogram = CUDA_RENDERER(
+    result_3d, pred_histogram, _, _, _ = CUDA_RENDERER(
         gaussian_model=model,
         camera_pos=current_camera_grid_positions,
         theta_range=(theta_min, theta_max),
