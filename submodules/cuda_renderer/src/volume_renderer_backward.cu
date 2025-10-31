@@ -115,6 +115,41 @@ __global__ void volume_render_backward_kernel(
     int num_gaussians = gaussian_filter[ray_idx * (MAX_GAUSSIANS_PER_RAY + 1)];
     const int* valid_gaussian_indices = &gaussian_filter[ray_idx * (MAX_GAUSSIANS_PER_RAY + 1) + 1];
     
+    // ============================================================
+    // OPTIMIZATION: Local gradient accumulation
+    // Instead of atomicAdd on every sample, accumulate locally first
+    // ============================================================
+    
+    // Allocate local gradient buffers for each Gaussian
+    // We only allocate for filtered Gaussians (not all N_gaussians)
+    float local_grad_means[MAX_GAUSSIANS_PER_RAY * 3];
+    float local_grad_log_scales[MAX_GAUSSIANS_PER_RAY * 3];
+    float local_grad_rotations[MAX_GAUSSIANS_PER_RAY * 4];
+    float local_grad_opacities[MAX_GAUSSIANS_PER_RAY];
+    float local_grad_features[MAX_GAUSSIANS_PER_RAY * 16];  // Assuming max SH degree 3
+    
+    // Initialize to zero
+    for (int i = 0; i < num_gaussians; i++) {
+        local_grad_means[i * 3 + 0] = 0.0f;
+        local_grad_means[i * 3 + 1] = 0.0f;
+        local_grad_means[i * 3 + 2] = 0.0f;
+        
+        local_grad_log_scales[i * 3 + 0] = 0.0f;
+        local_grad_log_scales[i * 3 + 1] = 0.0f;
+        local_grad_log_scales[i * 3 + 2] = 0.0f;
+        
+        local_grad_rotations[i * 4 + 0] = 0.0f;
+        local_grad_rotations[i * 4 + 1] = 0.0f;
+        local_grad_rotations[i * 4 + 2] = 0.0f;
+        local_grad_rotations[i * 4 + 3] = 0.0f;
+        
+        local_grad_opacities[i] = 0.0f;
+        
+        for (int k = 0; k < 16 && k < sh_dim; k++) {
+            local_grad_features[i * 16 + k] = 0.0f;
+        }
+    }
+    
     // Accumulated gradient for transmittance (carries backward through samples)
     float grad_T_accumulated = 0.0f;
 
@@ -377,15 +412,13 @@ __global__ void volume_render_backward_kernel(
                 grad_rho = 0.0f;
             }
             
-            // --- Accumulate gradients via atomicAdd ---
+            // ============================================================
+            // OPTIMIZATION: Accumulate to LOCAL buffers (no atomicAdd yet!)
+            // ============================================================
             
             // 1. Gradient w.r.t. mean (via PDF)
             float3 grad_mean_from_pdf = grad_gaussian_pdf_wrt_mean(pos, mean, scale, quat, pdf);
-            float3 grad_mean_local = grad_mean_from_pdf * grad_pdf; // ∂L/∂alpha * ∂alpha/∂mean
-            
-            atomicAdd(&grad_means[g * 3 + 0], grad_mean_local.x);
-            atomicAdd(&grad_means[g * 3 + 1], grad_mean_local.y);
-            atomicAdd(&grad_means[g * 3 + 2], grad_mean_local.z);
+            float3 grad_mean_total = grad_mean_from_pdf * grad_pdf; // ∂L/∂alpha * ∂alpha/∂mean
             
             // 1b. Gradient w.r.t. mean (via view_dir → rho path)
             if (grad_rho != 0.0f) {
@@ -402,43 +435,44 @@ __global__ void volume_render_backward_kernel(
                 );
                 
                 // Chain rule: ∂L/∂mean = ∂L/∂rho * ∂rho/∂view_dir * ∂view_dir/∂mean
-                // Matrix-vector multiplication: grad_mean = J^T * grad_rho_wrt_dir
                 float3 grad_mean_from_rho = make_float3(
                     jacobian[0] * grad_rho_wrt_dir.x + jacobian[3] * grad_rho_wrt_dir.y + jacobian[6] * grad_rho_wrt_dir.z,
                     jacobian[1] * grad_rho_wrt_dir.x + jacobian[4] * grad_rho_wrt_dir.y + jacobian[7] * grad_rho_wrt_dir.z,
                     jacobian[2] * grad_rho_wrt_dir.x + jacobian[5] * grad_rho_wrt_dir.y + jacobian[8] * grad_rho_wrt_dir.z
                 );
-                
-                // Scale by upstream gradient
                 grad_mean_from_rho = grad_mean_from_rho * grad_rho;
                 
-                // Accumulate (add to the gradient from PDF path)
-                atomicAdd(&grad_means[g * 3 + 0], grad_mean_from_rho.x);
-                atomicAdd(&grad_means[g * 3 + 1], grad_mean_from_rho.y);
-                atomicAdd(&grad_means[g * 3 + 2], grad_mean_from_rho.z);
-            } // ∂L/∂rho * ∂rho/∂mean // CHECK! kk
+                // Add to total
+                grad_mean_total.x += grad_mean_from_rho.x;
+                grad_mean_total.y += grad_mean_from_rho.y;
+                grad_mean_total.z += grad_mean_from_rho.z;
+            }
             
-            // TODO: BELOW GRADIENT CALCULATIONS
+            // Accumulate to LOCAL buffer
+            local_grad_means[i * 3 + 0] += grad_mean_total.x;
+            local_grad_means[i * 3 + 1] += grad_mean_total.y;
+            local_grad_means[i * 3 + 2] += grad_mean_total.z;
+            
             // 2. Gradient w.r.t. log-scale (via PDF)
             float3 grad_log_scale_local = grad_gaussian_pdf_wrt_log_scale(pos, mean, scale, quat, pdf);
             grad_log_scale_local = grad_log_scale_local * grad_pdf;
             
-            atomicAdd(&grad_log_scales[g * 3 + 0], grad_log_scale_local.x);
-            atomicAdd(&grad_log_scales[g * 3 + 1], grad_log_scale_local.y);
-            atomicAdd(&grad_log_scales[g * 3 + 2], grad_log_scale_local.z);
+            local_grad_log_scales[i * 3 + 0] += grad_log_scale_local.x;
+            local_grad_log_scales[i * 3 + 1] += grad_log_scale_local.y;
+            local_grad_log_scales[i * 3 + 2] += grad_log_scale_local.z;
             
             // 3. Gradient w.r.t. logit-opacity (via contribution)
             float grad_logit_opacity = grad_opacity_local * grad_sigmoid(opacity);
-            atomicAdd(&grad_opacities[g], grad_logit_opacity);
+            local_grad_opacities[i] += grad_logit_opacity;
             
             // 4. Gradient w.r.t. quaternion (via PDF)
             float4 grad_quat_local = grad_gaussian_pdf_wrt_quaternion(pos, mean, scale, quat, pdf);
             grad_quat_local = grad_quat_local * grad_pdf;
             
-            atomicAdd(&grad_rotations[g * 4 + 0], grad_quat_local.x);
-            atomicAdd(&grad_rotations[g * 4 + 1], grad_quat_local.y);
-            atomicAdd(&grad_rotations[g * 4 + 2], grad_quat_local.z);
-            atomicAdd(&grad_rotations[g * 4 + 3], grad_quat_local.w);
+            local_grad_rotations[i * 4 + 0] += grad_quat_local.x;
+            local_grad_rotations[i * 4 + 1] += grad_quat_local.y;
+            local_grad_rotations[i * 4 + 2] += grad_quat_local.z;
+            local_grad_rotations[i * 4 + 3] += grad_quat_local.w;
             
             // 5. Gradient w.r.t. SH features (via rho)
             if (grad_rho != 0.0f) {
@@ -450,8 +484,54 @@ __global__ void volume_render_backward_kernel(
                 grad_sh_wrt_coeffs(active_sh_degree, view_dir, sh_basis_grads);
                 
                 for (int k = 0; k < max_coeffs && k < sh_dim; k++) {
-                    atomicAdd(&grad_features[g * sh_dim + k], grad_rho * sh_basis_grads[k]);
+                    local_grad_features[i * 16 + k] += grad_rho * sh_basis_grads[k];
                 }
+            }
+        }
+    }
+    
+    // ============================================================
+    // OPTIMIZATION: Write local gradients to global memory ONCE per ray
+    // This reduces atomicAdd calls from O(N_samples * N_gaussians) to O(N_gaussians)
+    // Expected speedup: ~N_samples times (e.g., 256x fewer atomicAdd calls!)
+    // ============================================================
+    
+    for (int i = 0; i < num_gaussians; i++) {
+        int g = valid_gaussian_indices[i];
+        if (g < 0 || g >= N_gaussians) continue;
+        
+        // Means
+        if (local_grad_means[i * 3 + 0] != 0.0f || local_grad_means[i * 3 + 1] != 0.0f || local_grad_means[i * 3 + 2] != 0.0f) {
+            atomicAdd(&grad_means[g * 3 + 0], local_grad_means[i * 3 + 0]);
+            atomicAdd(&grad_means[g * 3 + 1], local_grad_means[i * 3 + 1]);
+            atomicAdd(&grad_means[g * 3 + 2], local_grad_means[i * 3 + 2]);
+        }
+        
+        // Log scales
+        if (local_grad_log_scales[i * 3 + 0] != 0.0f || local_grad_log_scales[i * 3 + 1] != 0.0f || local_grad_log_scales[i * 3 + 2] != 0.0f) {
+            atomicAdd(&grad_log_scales[g * 3 + 0], local_grad_log_scales[i * 3 + 0]);
+            atomicAdd(&grad_log_scales[g * 3 + 1], local_grad_log_scales[i * 3 + 1]);
+            atomicAdd(&grad_log_scales[g * 3 + 2], local_grad_log_scales[i * 3 + 2]);
+        }
+        
+        // Rotations
+        if (local_grad_rotations[i * 4 + 0] != 0.0f || local_grad_rotations[i * 4 + 1] != 0.0f || 
+            local_grad_rotations[i * 4 + 2] != 0.0f || local_grad_rotations[i * 4 + 3] != 0.0f) {
+            atomicAdd(&grad_rotations[g * 4 + 0], local_grad_rotations[i * 4 + 0]);
+            atomicAdd(&grad_rotations[g * 4 + 1], local_grad_rotations[i * 4 + 1]);
+            atomicAdd(&grad_rotations[g * 4 + 2], local_grad_rotations[i * 4 + 2]);
+            atomicAdd(&grad_rotations[g * 4 + 3], local_grad_rotations[i * 4 + 3]);
+        }
+        
+        // Opacity
+        if (local_grad_opacities[i] != 0.0f) {
+            atomicAdd(&grad_opacities[g], local_grad_opacities[i]);
+        }
+        
+        // Features
+        for (int k = 0; k < 16 && k < sh_dim; k++) {
+            if (local_grad_features[i * 16 + k] != 0.0f) {
+                atomicAdd(&grad_features[g * sh_dim + k], local_grad_features[i * 16 + k]);
             }
         }
     }
