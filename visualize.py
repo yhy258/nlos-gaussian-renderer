@@ -2,7 +2,41 @@ import numpy as np
 import scipy.io as sio
 import cv2
 import os
+import matplotlib.pyplot as plt
 
+
+def max_projected_imshow(save_dir, density, albedo):
+    XOY_density = np.max(density, axis = 0)
+    plt.imshow(XOY_density)
+    plt.colorbar()
+    plt.savefig(f'{save_dir}/predicted_volume_density_XOY.png')
+    plt.close()
+    YOZ_density = np.max(density, axis = 1)
+    plt.imshow(YOZ_density)
+    plt.colorbar()
+    plt.savefig(f'{save_dir}/predicted_volume_density_YOZ.png')
+    plt.close()
+    XOZ_density = np.max(density, axis = 2)
+    plt.imshow(XOZ_density)
+    plt.colorbar()
+    plt.savefig(f'{save_dir}/predicted_volume_density_XOZ.png')
+    plt.close()
+
+    XOY_albedo = np.max(albedo, axis = 0)
+    plt.imshow(XOY_albedo)
+    plt.colorbar()
+    plt.savefig(f'{save_dir}/predicted_volume_albedo_XOY.png')
+    plt.close()
+    YOZ_albedo = np.max(albedo, axis = 1)
+    plt.imshow(YOZ_albedo)
+    plt.colorbar()
+    plt.savefig(f'{save_dir}/predicted_volume_albedo_YOZ.png')
+    plt.close()
+    XOZ_albedo = np.max(albedo, axis = 2)
+    plt.imshow(XOZ_albedo)
+    plt.colorbar()
+    plt.savefig(f'{save_dir}/predicted_volume_albedo_XOZ.png')
+    plt.close()
 
 def visualize_transient_img():
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -15,6 +15,7 @@ from configs.default import Config, OptimizationParams
 from gaussian_model.gaussian_model import GaussianModel
 from gaussian_model.gaussian_utils import init_rand_points, sample_from_feasible_space_jittering
 from data_loader import load_zaragoza256_data
+from evaluation import make_eval_kwargs
 
 
 def random_seed(args):
@@ -175,7 +176,7 @@ def warmup_learn_func(args, optim_args, model, data_kwargs, optim_kwargs, device
     optim_kwargs['prev_time'] = time.time()
     return model, optim_kwargs
 
-def learn_func(args, optim_args, model, data_kwargs, optim_kwargs, device, gpu_verbose=False):
+def learn_func(args, optim_args, model, data_kwargs, optim_kwargs, eval_kwargs, device, gpu_verbose=False):
     """
         data_kwargs:
             index: the indices for the shuffled data
@@ -249,6 +250,9 @@ def learn_func(args, optim_args, model, data_kwargs, optim_kwargs, device, gpu_v
 
             if optim_kwargs['current_iter'] % args.save_model_interval == 0:
                 save_model(args, model, optim_kwargs['current_iter'])
+                eval_coords = eval_kwargs['eval_coords']
+                eval_cam_pos = eval_kwargs['eval_cam_pos']
+                gaussian2volume(args, model, eval_coords, data_kwargs, eval_cam_pos, optim_kwargs['current_iter'], resolution=128)
 
             optim_kwargs['current_iter'] += 1
             if optim_kwargs['current_iter'] % 1000 == 0:
@@ -365,6 +369,7 @@ def train(args, optim_args, device):
     ## The actually used data is data_kwargs['nlos_data'], and the global variable 'nlos_data' in the train function would be used to rebalance them.
     print(f'Current Device: {device}')
     data_kwargs, nlos_data, camera_grid_positions, index = make_data_kwargs(args, device)
+    eval_kwargs = make_eval_kwargs(args, data_kwargs)
     print('deltaT: ' + str(data_kwargs['deltaT']))
     # Create model
     model = create_model(args, data_kwargs, optim_args, device)
@@ -386,7 +391,7 @@ def train(args, optim_args, device):
     
     model, optim_kwargs = warmup_learn_func(args, optim_args, model, data_kwargs, optim_kwargs, device)
     while True:
-        model, optim_kwargs, complete = learn_func(args, optim_args, model, data_kwargs, optim_kwargs, device)
+        model, optim_kwargs, complete = learn_func(args, optim_args, model, data_kwargs, optim_kwargs, eval_kwargs, device)
         if complete:
             break
 

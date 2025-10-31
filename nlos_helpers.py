@@ -16,13 +16,13 @@ import open3d as o3d
 import scipy
 # from scipy.interpolate import griddata
 from gaussian_model.gaussian_model import GaussianModel
+from visualize import max_projected_imshow
 
 # Try to import CUDA renderer
 try:
-    from gaussian_model.cuda_autograd import create_cuda_render_module, create_cuda_albedo_render_module
+    from gaussian_model.cuda_autograd import create_cuda_render_module
     CUDA_RENDERER_AVAILABLE = True
     CUDA_RENDERER = create_cuda_render_module()
-    CUDA_ALBEDO_RENDERER = create_cuda_albedo_render_module()
 except ImportError:
     CUDA_RENDERER_AVAILABLE = False
     CUDA_RENDERER = None
@@ -33,69 +33,43 @@ def save_model(args, model, current_iter):
     model_save_rel_dir = args.model_save_rel_dir
     model_dir = model_save_rel_dir
     os.makedirs(model_dir, exist_ok=True)
-    model_name = f'{model_dir}/current_iter' + str(current_iter) + '.pt'
+    os.makedirs(f'./{model_dir}/iter{current_iter}_save', exist_ok=True)
+    model_name = f'./{model_dir}/iter{current_iter}_save/model.pt'
     params = model.get_params()
     torch.save(params, model_name)
     return 0
 
 @torch.no_grad()
-def gaussian2volume(args, model: GaussianModel, data_kwargs, camera_pos, resolution=128, mode='voxel'):
-    input_points, I1, I2, num_r, dtheta, dphi, theta_min, theta_max, phi_min, phi_max = spherical_sample_histogram(args, data_kwargs, camera_pos)
-    input_points_ori = input_points[:, 0:3] # spatial coordinate
+def gaussian2volume(args, model: GaussianModel, coords, data_kwargs, camera_pos, current_iter, resolution=128):
     if args.use_cuda_renderer and CUDA_RENDERER is not None:
-        theta_vals = input_points[:, 3]
-        phi_vals = input_points[:, 4]
+        from gaussian_model.coord_rendering import compute_albedo_at_coords, compute_density_at_coords
+        ### visualize density and albedo
+        density = compute_density_at_coords(coords, model) # H, W, D
+        albedo = compute_albedo_at_coords(coords, model, camera_pos) # H, W, D
 
-        theta_min = theta_vals.min().item()
-        theta_max = theta_vals.max().item()
-        phi_min = phi_vals.min().item()
-        phi_max = phi_vals.max().item()
+        # density and albedo save
+        model_save_rel_dir = args.model_save_rel_dir
+        model_dir = model_save_rel_dir
+        os.makedirs(f'./{model_dir}/iter{current_iter}_save/volume', exist_ok=True)
+        np.save(f'./{model_dir}/iter{current_iter}_save/volume/density.npy', density.cpu().numpy())
+        np.save(f'./{model_dir}/iter{current_iter}_save/volume/albedo.npy', albedo.cpu().numpy())
 
-        r_min = I1 * data_kwargs['c'] * data_kwargs['deltaT']
-        r_max = I2 * data_kwargs['c'] * data_kwargs['deltaT']
-        _, _, rho_density, density, transmittance = CUDA_RENDERER(
-            gaussian_model=model,
-            camera_pos=camera_pos,
-            theta_range=(theta_min, theta_max),
-            phi_range=(phi_min, phi_max),
-            r_range=(r_min, r_max),
-            num_theta=args.num_sampling_points,
-            num_phi=args.num_sampling_points,
-            num_r=num_r,
-            c=data_kwargs['c'],
-            deltaT=data_kwargs['deltaT'],
-            scaling_modifier=args.scaling_modifier,
-            use_occlusion=args.occlusion,
-        )
-        albedo = CUDA_ALBEDO_RENDERER(
-            gaussian_model=model,
-            camera_pos=camera_pos,
-            theta_range=(theta_min, theta_max),
-            phi_range=(phi_min, phi_max),
-            r_range=(r_min, r_max),
-            num_theta=args.num_sampling_points,
-            num_phi=args.num_sampling_points,
-            num_r=num_r,
-            c=data_kwargs['c'],
-            deltaT=data_kwargs['deltaT'],
-            scaling_modifier=args.scaling_modifier,
-            use_occlusion=args.occlusion,
-        )
+        ##### max value visualization
+        os.makedirs(f'./{model_dir}/iter{current_iter}_save/imfigs', exist_ok=True)
+        fig_save_dir = f'./{model_dir}/iter{current_iter}_save/imfigs'
+        max_projected_imshow(fig_save_dir, density, albedo)
 
-        density = density.T.reshape(num_r, args.num_sampling_points, args.num_sampling_points)
-        density = density.reshape(-1)
-        
-        albedo = albedo.T.reshape(num_r, args.num_sampling_points, args.num_sampling_points)
-        albedo = albedo.reshape(-1)
     else:
+        # without CUDA, it is hard to render the entire volume.. Please use the CUDA Renderer.
+        input_points = spherical_sample_histogram(args, data_kwargs, camera_pos)[0]
+        input_points_ori = input_points[:, 0:3] # spatial coordinate Na by 3
         result, density, albedo = model.estimate_rho_w(input_points_ori, camera_pos, c=data_kwargs['c'], deltaT=data_kwargs['deltaT'], scaling_modifier=args.scaling_modifier, out_separately=True)
 
-    irregular_density = density.cpu().numpy()
-    irregular_albedo = albedo.cpu().numpy()
-    irregular_points = input_points_ori.cpu().numpy()
+        irregular_density = density.cpu().numpy()
+        irregular_albedo = albedo.cpu().numpy()
+        irregular_points = input_points_ori.cpu().numpy()
 
 
-    if mode.lower() == 'mesh':
         threshold = np.mean(irregular_density)
         dense_points = irregular_points[irregular_density > threshold]
         pcd = o3d.geometry.PointCloud()
@@ -115,6 +89,8 @@ def gaussian2volume(args, model: GaussianModel, data_kwargs, camera_pos, resolut
         # 6. result save.
         o3d.io.write_point_cloud("output_point_cloud.ply", pcd)
         o3d.io.write_triangle_mesh("output_poisson_mesh.ply", mesh)
+
+        return
 
 
 
