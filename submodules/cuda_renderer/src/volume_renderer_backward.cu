@@ -8,6 +8,7 @@
 
 #define THREADS_PER_BLOCK 256
 #define MAX_GAUSSIANS_PER_RAY 256
+#define MAX_T_SAMPLES_SHARED 512  // Shared memory limit for t_samples
 
 /**
  * Volume Rendering Backward Pass Kernel
@@ -21,6 +22,7 @@
  * 3. Accumulates gradients using atomicAdd for thread safety
  * 
  * Mathematical derivation: See BACKWARD_PASS_DERIVATION.md
+ * OPTIMIZED VERSION with Shared Memory
  */
 __global__ void volume_render_backward_kernel(
     // Gradient inputs (from upstream loss)
@@ -62,11 +64,38 @@ __global__ void volume_render_backward_kernel(
     float* __restrict__ grad_opacities,   // [N_gaussians, 1]
     float* __restrict__ grad_features     // [N_gaussians, K]
 ) {
+    // ============================================================
+    // SHARED MEMORY OPTIMIZATION
+    // ============================================================
+    __shared__ float s_t_samples[MAX_T_SAMPLES_SHARED];
+    __shared__ float3 s_cam_pos;
+    
+    int tid = threadIdx.x;
+    int load_iterations = (N_samples + blockDim.x - 1) / blockDim.x;
+    
+    // Cooperative loading of t_samples
+    for (int iter = 0; iter < load_iterations; iter++) {
+        int sample_idx = tid + iter * blockDim.x;
+        if (sample_idx < N_samples && sample_idx < MAX_T_SAMPLES_SHARED) {
+            s_t_samples[sample_idx] = t_samples[sample_idx];
+        }
+    }
+    
+    // First thread loads camera position
+    if (tid == 0) {
+        s_cam_pos = make_float3(camera_pos[0], camera_pos[1], camera_pos[2]);
+    }
+    
+    __syncthreads();
+    
+    // ============================================================
+    // PER-RAY BACKWARD COMPUTATION
+    // ============================================================
     int ray_idx = blockIdx.x * blockDim.x + threadIdx.x;
     
     if (ray_idx >= N_rays) return;
     
-    // Load ray
+    // Load ray (coalesced access)
     float3 ray_o = make_float3(
         ray_origins[ray_idx * 3 + 0],
         ray_origins[ray_idx * 3 + 1],
@@ -79,7 +108,8 @@ __global__ void volume_render_backward_kernel(
         ray_directions[ray_idx * 3 + 2]
     );
     
-    float3 cam_pos = make_float3(camera_pos[0], camera_pos[1], camera_pos[2]);
+    // Use cached camera position from shared memory
+    float3 cam_pos = s_cam_pos;
     
     // Get filtered Gaussians for this ray
     int num_gaussians = gaussian_filter[ray_idx * (MAX_GAUSSIANS_PER_RAY + 1)];
@@ -106,7 +136,8 @@ __global__ void volume_render_backward_kernel(
     
     // March BACKWARD along ray (CRITICAL for transmittance dependencies!)
     for (int s = N_samples - 1; s >= 0; s--) {
-        float t = t_samples[s];
+        // Read from shared memory instead of global memory
+        float t = (s < MAX_T_SAMPLES_SHARED) ? s_t_samples[s] : t_samples[s];
         float3 pos = ray_o + ray_d * t;
         
         int out_idx = ray_idx * N_samples + s;
