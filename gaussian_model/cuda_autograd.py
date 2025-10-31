@@ -206,6 +206,7 @@ class CUDARenderFunction(torch.autograd.Function):
             None,  # deltaT
             None,  # scaling_modifier
             None,  # use_occlusion
+            None
         )
 
 
