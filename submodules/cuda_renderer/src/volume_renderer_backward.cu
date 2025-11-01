@@ -8,7 +8,7 @@
 #include "volume_renderer_backward.h"
 
 #define THREADS_PER_BLOCK 256
-#define MAX_GAUSSIANS_PER_RAY 256
+#define MAX_GAUSSIANS_PER_RAY 512
 #define MAX_T_SAMPLES_SHARED 512  // Shared memory limit for t_samples
 
 /**
