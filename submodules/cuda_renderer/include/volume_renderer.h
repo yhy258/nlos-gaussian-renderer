@@ -4,9 +4,9 @@
 #include <torch/extension.h>
 #include <tuple>
 
-// Per-ray volume rendering with transmittance (default: shared memory)
-// Returns: (rho_density, density, transmittance, gaussian_bboxes, gaussian_filter)
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> render_rays(
+// Per-ray volume rendering with transmittance (default: shared memory + forward cache)
+// Returns: (rho_density, density, transmittance, gaussian_bboxes, gaussian_filter, forward_cache)
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> render_rays(
     const torch::Tensor& ray_origins,        // [N_rays, 3]
     const torch::Tensor& ray_directions,     // [N_rays, 3]
     const torch::Tensor& t_samples,          // [N_samples] - ray parameter values (r values)
@@ -23,8 +23,8 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
     const bool use_occlusion
 );
 
-// OPTIMIZED: Shared memory version
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> render_rays_shared(
+// OPTIMIZED: Shared memory version with forward cache
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> render_rays_shared(
     const torch::Tensor& ray_origins,
     const torch::Tensor& ray_directions,
     const torch::Tensor& t_samples,

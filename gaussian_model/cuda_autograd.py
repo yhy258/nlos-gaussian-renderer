@@ -70,24 +70,47 @@ class CUDARenderFunction(torch.autograd.Function):
             raise ValueError(f"Invalid memory_mode: {memory_mode}. Use 'shared' or 'global'")
 
         # Call CUDA forward kernel (ensure contiguous for CUDA)
-        rho_density, density, transmittance, gaussian_bboxes, gaussian_filter = render_fn(
-            ray_origins.contiguous(),
-            ray_directions.contiguous(),
-            t_samples.contiguous(),
-            gaussian_means.contiguous(),
-            gaussian_scales.contiguous(),
-            gaussian_rotations.contiguous(),
-            gaussian_opacities.contiguous(),
-            gaussian_features.contiguous(),
-            camera_pos.contiguous(),
-            active_sh_degree,
-            c,
-            deltaT,
-            scaling_modifier,
-            use_occlusion
-        )
+        # NEW: Forward now returns 6 values including forward_cache!
+        if memory_mode == 'shared':
+            # Shared memory returns cache
+            rho_density, density, transmittance, gaussian_bboxes, gaussian_filter, forward_cache = render_fn(
+                ray_origins.contiguous(),
+                ray_directions.contiguous(),
+                t_samples.contiguous(),
+                gaussian_means.contiguous(),
+                gaussian_scales.contiguous(),
+                gaussian_rotations.contiguous(),
+                gaussian_opacities.contiguous(),
+                gaussian_features.contiguous(),
+                camera_pos.contiguous(),
+                active_sh_degree,
+                c,
+                deltaT,
+                scaling_modifier,
+                use_occlusion
+            )
+        else:
+            # Global memory doesn't return cache (5 values)
+            rho_density, density, transmittance, gaussian_bboxes, gaussian_filter = render_fn(
+                ray_origins.contiguous(),
+                ray_directions.contiguous(),
+                t_samples.contiguous(),
+                gaussian_means.contiguous(),
+                gaussian_scales.contiguous(),
+                gaussian_rotations.contiguous(),
+                gaussian_opacities.contiguous(),
+                gaussian_features.contiguous(),
+                camera_pos.contiguous(),
+                active_sh_degree,
+                c,
+                deltaT,
+                scaling_modifier,
+                use_occlusion
+            )
+            forward_cache = torch.empty(0)  # Empty tensor for compatibility
 
         # Save ORIGINAL tensors for backward (NOT contiguous copies!)
+        # IMPORTANT: Save forward_cache for backward pass!
         ctx.save_for_backward(
             ray_origins,
             ray_directions,
@@ -101,7 +124,8 @@ class CUDARenderFunction(torch.autograd.Function):
             camera_pos,
             rho_density,
             density,
-            transmittance
+            transmittance,
+            forward_cache  # NEW!
         )
         ctx.active_sh_degree = active_sh_degree
         ctx.c = c
@@ -124,7 +148,7 @@ class CUDARenderFunction(torch.autograd.Function):
         Returns:
             Gradients for all forward inputs (None for non-learnable params)
         """
-        # Retrieve saved tensors
+        # Retrieve saved tensors (INCLUDING forward_cache!)
         (
             ray_origins,
             ray_directions,
@@ -138,7 +162,8 @@ class CUDARenderFunction(torch.autograd.Function):
             camera_pos,
             rho_density,
             density,
-            transmittance
+            transmittance,
+            forward_cache  # NEW!
         ) = ctx.saved_tensors
 
         # Initialize gradients
@@ -156,6 +181,7 @@ class CUDARenderFunction(torch.autograd.Function):
         if grad_transmittance is not None:
             grad_transmittance = grad_transmittance.contiguous()
 
+        # Call backward kernel with forward_cache for fast computation!
         grad_gaussian_means_, grad_gaussian_scales_, grad_gaussian_rotations_, grad_gaussian_opacities_, grad_gaussian_features_ \
                 =_C.render_rays_backward(
                     rho_density,
@@ -174,6 +200,7 @@ class CUDARenderFunction(torch.autograd.Function):
                     gaussian_opacities.contiguous(),
                     gaussian_features.contiguous(),
                     camera_pos.contiguous(),
+                    forward_cache.contiguous(),  # NEW! Forward cache for fast backward
                     ctx.active_sh_degree, ctx.c, ctx.deltaT, ctx.scaling_modifier, ctx.use_occlusion
                 )
 

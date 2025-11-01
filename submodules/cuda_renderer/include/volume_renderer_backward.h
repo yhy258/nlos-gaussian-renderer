@@ -42,6 +42,7 @@ std::tuple<
     const torch::Tensor& gaussian_opacities,     // [N_gaussians, 1]
     const torch::Tensor& gaussian_features,      // [N_gaussians, K]
     const torch::Tensor& camera_pos,             // [3]
+    const torch::Tensor& forward_cache,          // [N_rays, N_samples, MAX_GAUSSIANS_PER_RAY] - NEW!
     
     // Hyperparameters
     const int active_sh_degree,

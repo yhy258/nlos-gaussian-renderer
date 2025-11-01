@@ -5,10 +5,11 @@
 #include "bbox_compute.cuh"
 #include "spherical_harmonics.cuh"
 #include "ray_aabb.h"
+#include "forward_cache.cuh"
 #include <tuple>
 
 #define THREADS_PER_BLOCK 256
-#define MAX_GAUSSIANS_PER_RAY 256
+#define MAX_GAUSSIANS_PER_RAY 1024
 #define MAX_T_SAMPLES_SHARED 512  // Shared memory limit for t_samples
 
 // ============================================================
@@ -196,7 +197,8 @@ __global__ void volume_render_kernel_shared(
     const bool use_occlusion, 
     float* __restrict__ rho_density_out,          // [N_rays, N_samples] - FINAL OUTPUT
     float* __restrict__ density_out,              // [N_rays, N_samples] - for debugging
-    float* __restrict__ transmittance_out         // [N_rays, N_samples] - for debugging
+    float* __restrict__ transmittance_out,        // [N_rays, N_samples] - for debugging
+    ForwardCache* __restrict__ cache_out          // [N_rays, N_samples, MAX_GAUSSIANS_PER_RAY] - NEW!
 ) {
     // ============================================================
     // SHARED MEMORY OPTIMIZATION
@@ -312,6 +314,31 @@ __global__ void volume_render_kernel_shared(
                 float alpha = 1.0f - expf(-contrib);
                 weighted_alphas += alpha * rho;
                 density += contrib;
+                
+                // ============================================================
+                // FORWARD CACHE: Save intermediate results for backward pass
+                // This eliminates expensive recomputation!
+                // ============================================================
+                if (cache_out != nullptr) {
+                    int cache_idx = (ray_idx * N_samples + s) * MAX_GAUSSIANS_PER_RAY + i;
+                    cache_out[cache_idx].pdf = pdf;
+                    cache_out[cache_idx].opacity = opacity;
+                    cache_out[cache_idx].rho = rho;
+                    cache_out[cache_idx].contrib = contrib;
+                    cache_out[cache_idx].alpha = alpha;
+                    
+                    // Save Gaussian params to avoid reloading in backward
+                    cache_out[cache_idx].mean_x = mean.x;
+                    cache_out[cache_idx].mean_y = mean.y;
+                    cache_out[cache_idx].mean_z = mean.z;
+                    cache_out[cache_idx].scale_x = scale.x;
+                    cache_out[cache_idx].scale_y = scale.y;
+                    cache_out[cache_idx].scale_z = scale.z;
+                    cache_out[cache_idx].quat_x = quat.x;
+                    cache_out[cache_idx].quat_y = quat.y;
+                    cache_out[cache_idx].quat_z = quat.z;
+                    cache_out[cache_idx].quat_w = quat.w;
+                }
             }
 
             int out_idx = ray_idx * N_samples + s;
@@ -387,7 +414,7 @@ __global__ void volume_render_kernel_shared(
 // Wrapper Functions
 // ============================================================
 
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> render_rays_shared(
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> render_rays_shared(
     const torch::Tensor& ray_origins,
     const torch::Tensor& ray_directions,
     const torch::Tensor& t_samples,
@@ -449,6 +476,17 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
     torch::Tensor density = torch::zeros({N_rays, N_samples}, float_options);
     torch::Tensor transmittance = torch::zeros({N_rays, N_samples}, float_options);
     
+    // ============================================================
+    // FORWARD CACHE: Allocate cache for backward pass
+    // Size: [N_rays, N_samples, MAX_GAUSSIANS_PER_RAY] × sizeof(ForwardCache)
+    // ============================================================
+    const size_t cache_size = static_cast<size_t>(N_rays) * N_samples * MAX_GAUSSIANS_PER_RAY;
+    auto cache_options = torch::TensorOptions()
+        .dtype(torch::kUInt8)  // Raw bytes
+        .device(ray_origins.device());
+    
+    torch::Tensor forward_cache = torch::empty({static_cast<int64_t>(cache_size * sizeof(ForwardCache))}, cache_options);
+    
     // Launch SHARED MEMORY kernel
     const int blocks = (N_rays + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
     
@@ -474,12 +512,13 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
         use_occlusion,
         rho_density.data_ptr<float>(),
         density.data_ptr<float>(),
-        transmittance.data_ptr<float>()
+        transmittance.data_ptr<float>(),
+        reinterpret_cast<ForwardCache*>(forward_cache.data_ptr<uint8_t>())  // NEW!
     );
     
     cudaDeviceSynchronize();
     
-    return std::make_tuple(rho_density, density, transmittance, gaussian_bboxes, gaussian_filter);
+    return std::make_tuple(rho_density, density, transmittance, gaussian_bboxes, gaussian_filter, forward_cache);
 }
 
 std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> render_rays_global(
@@ -577,8 +616,8 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
     return std::make_tuple(rho_density, density, transmittance, gaussian_bboxes, gaussian_filter);
 }
 
-// Default: use shared memory version
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> render_rays(
+// Default: use shared memory version WITH forward cache
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> render_rays(
     const torch::Tensor& ray_origins,
     const torch::Tensor& ray_directions,
     const torch::Tensor& t_samples,
@@ -594,7 +633,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
     const float scaling_modifier,
     const bool use_occlusion
 ) {
-    // Default behavior: use optimized shared memory version
+    // Default behavior: use optimized shared memory version with forward caching
     return render_rays_shared(
         ray_origins, ray_directions, t_samples,
         gaussian_means, gaussian_scales, gaussian_rotations,

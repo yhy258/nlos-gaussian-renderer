@@ -4,6 +4,7 @@
 #include "cuda_utils.cuh"
 #include "backward_utils.cuh"
 #include "spherical_harmonics.cuh"
+#include "forward_cache.cuh"
 #include "volume_renderer_backward.h"
 
 #define THREADS_PER_BLOCK 256
@@ -43,6 +44,9 @@ __global__ void volume_render_backward_kernel(
     // Forward pass outputs (for recomputation)
     const float* __restrict__ density_fwd,        // [N_rays, N_samples]
     const float* __restrict__ transmittance_fwd,  // [N_rays, N_samples]
+    
+    // FORWARD CACHE (NEW! Eliminates recomputation)
+    const ForwardCache* __restrict__ cache_in,    // [N_rays, N_samples, MAX_GAUSSIANS_PER_RAY]
     
     // Dimensions
     const int N_rays,
@@ -198,53 +202,70 @@ __global__ void volume_render_backward_kernel(
         float contrib_values[MAX_GAUSSIANS_PER_RAY];
         
         if (use_occlusion) {
-            // Recompute weighted_alphas
-            for (int i = 0; i < num_gaussians; i++) {
-                int g = valid_gaussian_indices[i];
-                if (g < 0 || g >= N_gaussians) continue;
-                
-                // Load Gaussian parameters
-                float3 mean = make_float3(
-                    gaussian_means[g * 3 + 0],
-                    gaussian_means[g * 3 + 1],
-                    gaussian_means[g * 3 + 2]
-                );
-                
-                float3 scale = make_float3(
-                    expf(gaussian_scales[g * 3 + 0]) * scaling_modifier,
-                    expf(gaussian_scales[g * 3 + 1]) * scaling_modifier,
-                    expf(gaussian_scales[g * 3 + 2]) * scaling_modifier
-                );
-                
-                float4 quat = make_float4(
-                    gaussian_rotations[g * 4 + 0],
-                    gaussian_rotations[g * 4 + 1],
-                    gaussian_rotations[g * 4 + 2],
-                    gaussian_rotations[g * 4 + 3]
-                );
-                
-                float opacity = 1.0f / (1.0f + expf(-gaussian_opacities[g]));
-                float pdf = eval_gaussian_pdf(pos, mean, scale, quat);
-                
-                // View-dependent albedo
-                float3 view_dir = normalize(mean - cam_pos);
-                float rho = eval_sh(active_sh_degree, &gaussian_features[g * sh_dim], view_dir);
-                rho = fmaxf(rho + 0.5f, 0.0f);
-                
-                float contrib = pdf * opacity;
-                // should we product the dr=c*deltaT? 
-                // In NLOS-NeuS, they producted this factor since this term would be the discretized version of the integral for the ray samples points.
-                // float alpha = 1.0f - expf(-contrib * c * deltaT); 
-                float alpha = 1.0f - expf(-contrib);
-                
-                // Store for gradient computation
-                pdf_values[i] = pdf;
-                opacity_values[i] = opacity;
-                rho_values[i] = rho;
-                alpha_values[i] = alpha;
-                contrib_values[i] = contrib;
-                
-                weighted_alphas_s += alpha * rho;
+            // ============================================================
+            // FORWARD CACHE: Read cached values instead of recomputing!
+            // This eliminates expensive PDF, SH, and parameter loading!
+            // ============================================================
+            if (cache_in != nullptr) {
+                // Fast path: Use cached forward results
+                for (int i = 0; i < num_gaussians; i++) {
+                    int cache_idx = (ray_idx * N_samples + s) * MAX_GAUSSIANS_PER_RAY + i;
+                    
+                    // Read all values from cache (single memory transaction!)
+                    pdf_values[i] = cache_in[cache_idx].pdf;
+                    opacity_values[i] = cache_in[cache_idx].opacity;
+                    rho_values[i] = cache_in[cache_idx].rho;
+                    alpha_values[i] = cache_in[cache_idx].alpha;
+                    contrib_values[i] = cache_in[cache_idx].contrib;
+                    
+                    weighted_alphas_s += alpha_values[i] * rho_values[i];
+                }
+            } else {
+                // Fallback: Recompute (slower, for compatibility)
+                for (int i = 0; i < num_gaussians; i++) {
+                    int g = valid_gaussian_indices[i];
+                    if (g < 0 || g >= N_gaussians) continue;
+                    
+                    // Load Gaussian parameters
+                    float3 mean = make_float3(
+                        gaussian_means[g * 3 + 0],
+                        gaussian_means[g * 3 + 1],
+                        gaussian_means[g * 3 + 2]
+                    );
+                    
+                    float3 scale = make_float3(
+                        expf(gaussian_scales[g * 3 + 0]) * scaling_modifier,
+                        expf(gaussian_scales[g * 3 + 1]) * scaling_modifier,
+                        expf(gaussian_scales[g * 3 + 2]) * scaling_modifier
+                    );
+                    
+                    float4 quat = make_float4(
+                        gaussian_rotations[g * 4 + 0],
+                        gaussian_rotations[g * 4 + 1],
+                        gaussian_rotations[g * 4 + 2],
+                        gaussian_rotations[g * 4 + 3]
+                    );
+                    
+                    float opacity = 1.0f / (1.0f + expf(-gaussian_opacities[g]));
+                    float pdf = eval_gaussian_pdf(pos, mean, scale, quat);
+                    
+                    // View-dependent albedo
+                    float3 view_dir = normalize(mean - cam_pos);
+                    float rho = eval_sh(active_sh_degree, &gaussian_features[g * sh_dim], view_dir);
+                    rho = fmaxf(rho + 0.5f, 0.0f);
+                    
+                    float contrib = pdf * opacity;
+                    float alpha = 1.0f - expf(-contrib);
+                    
+                    // Store for gradient computation
+                    pdf_values[i] = pdf;
+                    opacity_values[i] = opacity;
+                    rho_values[i] = rho;
+                    alpha_values[i] = alpha;
+                    contrib_values[i] = contrib;
+                    
+                    weighted_alphas_s += alpha * rho;
+                }
             }
         } else {
             // No occlusion case (simpler)
@@ -326,25 +347,52 @@ __global__ void volume_render_backward_kernel(
             int g = valid_gaussian_indices[i];
             if (g < 0 || g >= N_gaussians) continue;
             
-            // Reload Gaussian parameters (needed for gradient computation)
-            float3 mean = make_float3(
-                gaussian_means[g * 3 + 0],
-                gaussian_means[g * 3 + 1],
-                gaussian_means[g * 3 + 2]
-            );
+            // ============================================================
+            // FORWARD CACHE: Read Gaussian params from cache (avoid reloading!)
+            // ============================================================
+            float3 mean, scale;
+            float4 quat;
             
-            float3 scale = make_float3(
-                expf(gaussian_scales[g * 3 + 0]) * scaling_modifier,
-                expf(gaussian_scales[g * 3 + 1]) * scaling_modifier,
-                expf(gaussian_scales[g * 3 + 2]) * scaling_modifier
-            );
-            
-            float4 quat = make_float4(
-                gaussian_rotations[g * 4 + 0],
-                gaussian_rotations[g * 4 + 1],
-                gaussian_rotations[g * 4 + 2],
-                gaussian_rotations[g * 4 + 3]
-            );
+            if (cache_in != nullptr) {
+                // Fast path: Read from cache
+                int cache_idx = (ray_idx * N_samples + s) * MAX_GAUSSIANS_PER_RAY + i;
+                mean = make_float3(
+                    cache_in[cache_idx].mean_x,
+                    cache_in[cache_idx].mean_y,
+                    cache_in[cache_idx].mean_z
+                );
+                scale = make_float3(
+                    cache_in[cache_idx].scale_x,
+                    cache_in[cache_idx].scale_y,
+                    cache_in[cache_idx].scale_z
+                );
+                quat = make_float4(
+                    cache_in[cache_idx].quat_x,
+                    cache_in[cache_idx].quat_y,
+                    cache_in[cache_idx].quat_z,
+                    cache_in[cache_idx].quat_w
+                );
+            } else {
+                // Fallback: Reload from global memory
+                mean = make_float3(
+                    gaussian_means[g * 3 + 0],
+                    gaussian_means[g * 3 + 1],
+                    gaussian_means[g * 3 + 2]
+                );
+                
+                scale = make_float3(
+                    expf(gaussian_scales[g * 3 + 0]) * scaling_modifier,
+                    expf(gaussian_scales[g * 3 + 1]) * scaling_modifier,
+                    expf(gaussian_scales[g * 3 + 2]) * scaling_modifier
+                );
+                
+                quat = make_float4(
+                    gaussian_rotations[g * 4 + 0],
+                    gaussian_rotations[g * 4 + 1],
+                    gaussian_rotations[g * 4 + 2],
+                    gaussian_rotations[g * 4 + 3]
+                );
+            }
             
             float pdf = pdf_values[i];
             float opacity = opacity_values[i];
@@ -564,6 +612,7 @@ std::tuple<
     const torch::Tensor& gaussian_opacities,
     const torch::Tensor& gaussian_features,
     const torch::Tensor& camera_pos,
+    const torch::Tensor& forward_cache,    // NEW! Forward cache for fast backward
     const int active_sh_degree,
     const float c,
     const float deltaT,
@@ -593,6 +642,12 @@ std::tuple<
     // Launch backward kernel
     const int blocks = (N_rays + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
     
+    // Extract cache pointer (can be nullptr for compatibility)
+    const ForwardCache* cache_ptr = nullptr;
+    if (forward_cache.defined() && forward_cache.numel() > 0) {
+        cache_ptr = reinterpret_cast<const ForwardCache*>(forward_cache.data_ptr<uint8_t>());
+    }
+    
     volume_render_backward_kernel<<<blocks, THREADS_PER_BLOCK>>>(
         grad_rho_density.data_ptr<float>(),
         ray_origins.data_ptr<float>(),
@@ -607,6 +662,7 @@ std::tuple<
         camera_pos.data_ptr<float>(),
         density.data_ptr<float>(),
         transmittance.data_ptr<float>(),
+        cache_ptr,  // NEW! Forward cache
         N_rays,
         N_samples,
         N_gaussians,
