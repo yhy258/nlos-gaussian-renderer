@@ -316,28 +316,19 @@ __global__ void volume_render_kernel_shared(
                 density += contrib;
                 
                 // ============================================================
-                // FORWARD CACHE: Save intermediate results for backward pass
-                // This eliminates expensive recomputation!
+                // FORWARD CACHE: Save ONLY expensive computations (COMPACT!)
+                // This eliminates expensive PDF/SH recomputation in backward
+                // Memory: 3 floats (12 bytes) vs 15 floats (60 bytes) → 5x smaller!
                 // ============================================================
                 if (cache_out != nullptr) {
                     int cache_idx = (ray_idx * N_samples + s) * MAX_GAUSSIANS_PER_RAY + i;
-                    cache_out[cache_idx].pdf = pdf;
-                    cache_out[cache_idx].opacity = opacity;
-                    cache_out[cache_idx].rho = rho;
-                    cache_out[cache_idx].contrib = contrib;
-                    cache_out[cache_idx].alpha = alpha;
+                    cache_out[cache_idx].pdf = pdf;         // EXPENSIVE: eval_gaussian_pdf
+                    cache_out[cache_idx].opacity = opacity; // Needed for gradients
+                    cache_out[cache_idx].rho = rho;         // EXPENSIVE: eval_sh
                     
-                    // Save Gaussian params to avoid reloading in backward
-                    cache_out[cache_idx].mean_x = mean.x;
-                    cache_out[cache_idx].mean_y = mean.y;
-                    cache_out[cache_idx].mean_z = mean.z;
-                    cache_out[cache_idx].scale_x = scale.x;
-                    cache_out[cache_idx].scale_y = scale.y;
-                    cache_out[cache_idx].scale_z = scale.z;
-                    cache_out[cache_idx].quat_x = quat.x;
-                    cache_out[cache_idx].quat_y = quat.y;
-                    cache_out[cache_idx].quat_z = quat.z;
-                    cache_out[cache_idx].quat_w = quat.w;
+                    // NOT saved (reload in backward - cheap memory access):
+                    // - mean, scale, quat: Just memory loads
+                    // - contrib, alpha: Trivial to recompute from pdf/opacity
                 }
             }
 
@@ -398,6 +389,16 @@ __global__ void volume_render_kernel_shared(
                 float contrib = pdf * opacity;
                 density += contrib;
                 weighted_radiance += contrib * rho;
+                
+                // ============================================================
+                // FORWARD CACHE: Save expensive computations (COMPACT!)
+                // ============================================================
+                if (cache_out != nullptr) {
+                    int cache_idx = (ray_idx * N_samples + s) * MAX_GAUSSIANS_PER_RAY + i;
+                    cache_out[cache_idx].pdf = pdf;
+                    cache_out[cache_idx].opacity = opacity;
+                    cache_out[cache_idx].rho = rho;
+                }
             }
             int out_idx = ray_idx * N_samples + s;
             density_out[out_idx] = density;

@@ -207,16 +207,20 @@ __global__ void volume_render_backward_kernel(
             // This eliminates expensive PDF, SH, and parameter loading!
             // ============================================================
             if (cache_in != nullptr) {
-                // Fast path: Use cached forward results
+                // Fast path: Use cached forward results (COMPACT VERSION!)
+                // Cache contains: pdf, opacity, rho (most expensive computations)
+                // Recompute: contrib, alpha (trivial from cached values)
                 for (int i = 0; i < num_gaussians; i++) {
                     int cache_idx = (ray_idx * N_samples + s) * MAX_GAUSSIANS_PER_RAY + i;
                     
-                    // Read all values from cache (single memory transaction!)
-                    pdf_values[i] = cache_in[cache_idx].pdf;
-                    opacity_values[i] = cache_in[cache_idx].opacity;
-                    rho_values[i] = cache_in[cache_idx].rho;
-                    alpha_values[i] = cache_in[cache_idx].alpha;
-                    contrib_values[i] = cache_in[cache_idx].contrib;
+                    // Read expensive cached values
+                    pdf_values[i] = cache_in[cache_idx].pdf;         // Cached: eval_gaussian_pdf
+                    opacity_values[i] = cache_in[cache_idx].opacity; // Cached: sigmoid
+                    rho_values[i] = cache_in[cache_idx].rho;         // Cached: eval_sh
+                    
+                    // Recompute trivial values from cached ones
+                    contrib_values[i] = pdf_values[i] * opacity_values[i];
+                    alpha_values[i] = 1.0f - expf(-contrib_values[i]);
                     
                     weighted_alphas_s += alpha_values[i] * rho_values[i];
                 }
@@ -348,51 +352,27 @@ __global__ void volume_render_backward_kernel(
             if (g < 0 || g >= N_gaussians) continue;
             
             // ============================================================
-            // FORWARD CACHE: Read Gaussian params from cache (avoid reloading!)
+            // Load Gaussian params (COMPACT CACHE: Always reload params)
+            // Trade-off: Small memory access vs 5x less cache memory
             // ============================================================
-            float3 mean, scale;
-            float4 quat;
+            float3 mean = make_float3(
+                gaussian_means[g * 3 + 0],
+                gaussian_means[g * 3 + 1],
+                gaussian_means[g * 3 + 2]
+            );
             
-            if (cache_in != nullptr) {
-                // Fast path: Read from cache
-                int cache_idx = (ray_idx * N_samples + s) * MAX_GAUSSIANS_PER_RAY + i;
-                mean = make_float3(
-                    cache_in[cache_idx].mean_x,
-                    cache_in[cache_idx].mean_y,
-                    cache_in[cache_idx].mean_z
-                );
-                scale = make_float3(
-                    cache_in[cache_idx].scale_x,
-                    cache_in[cache_idx].scale_y,
-                    cache_in[cache_idx].scale_z
-                );
-                quat = make_float4(
-                    cache_in[cache_idx].quat_x,
-                    cache_in[cache_idx].quat_y,
-                    cache_in[cache_idx].quat_z,
-                    cache_in[cache_idx].quat_w
-                );
-            } else {
-                // Fallback: Reload from global memory
-                mean = make_float3(
-                    gaussian_means[g * 3 + 0],
-                    gaussian_means[g * 3 + 1],
-                    gaussian_means[g * 3 + 2]
-                );
-                
-                scale = make_float3(
-                    expf(gaussian_scales[g * 3 + 0]) * scaling_modifier,
-                    expf(gaussian_scales[g * 3 + 1]) * scaling_modifier,
-                    expf(gaussian_scales[g * 3 + 2]) * scaling_modifier
-                );
-                
-                quat = make_float4(
-                    gaussian_rotations[g * 4 + 0],
-                    gaussian_rotations[g * 4 + 1],
-                    gaussian_rotations[g * 4 + 2],
-                    gaussian_rotations[g * 4 + 3]
-                );
-            }
+            float3 scale = make_float3(
+                expf(gaussian_scales[g * 3 + 0]) * scaling_modifier,
+                expf(gaussian_scales[g * 3 + 1]) * scaling_modifier,
+                expf(gaussian_scales[g * 3 + 2]) * scaling_modifier
+            );
+            
+            float4 quat = make_float4(
+                gaussian_rotations[g * 4 + 0],
+                gaussian_rotations[g * 4 + 1],
+                gaussian_rotations[g * 4 + 2],
+                gaussian_rotations[g * 4 + 3]
+            );
             
             float pdf = pdf_values[i];
             float opacity = opacity_values[i];

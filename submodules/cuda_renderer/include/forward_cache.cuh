@@ -12,26 +12,22 @@
  * Memory layout: [N_rays, N_samples, MAX_GAUSSIANS_PER_RAY]
  */
 
+// COMPACT VERSION: Only cache expensive computations
+// Memory: 3 floats = 12 bytes per entry (5x smaller!)
+// Trade-off: Reload Gaussian params in backward (cheap memory access)
 struct ForwardCache {
-    float pdf;         // Gaussian PDF value
-    float opacity;     // Sigmoid(opacity_logit)
-    float rho;         // Albedo from SH evaluation
-    float contrib;     // pdf * opacity
-    float alpha;       // 1 - exp(-contrib) [for occlusion mode]
+    float pdf;         // Gaussian PDF value (EXPENSIVE: eval_gaussian_pdf)
+    float opacity;     // Sigmoid(opacity_logit) (cheap but needed)
+    float rho;         // Albedo from SH evaluation (EXPENSIVE: eval_sh)
     
-    // Gaussian parameters (avoid reloading)
-    float mean_x, mean_y, mean_z;
-    float scale_x, scale_y, scale_z;
-    float quat_x, quat_y, quat_z, quat_w;
+    // NOT stored (reload in backward):
+    // - Gaussian params (mean, scale, quat): Cheap memory loads
+    // - contrib, alpha: Can recompute from pdf/opacity (trivial)
 };
 
-// Compact version (less memory, recompute some values)
-struct ForwardCacheCompact {
-    float pdf;
-    float opacity;
-    float rho;
-    // Gaussian params can be reloaded (trade-off)
-};
+// Full version (DISABLED due to OOM):
+// 15 floats = 60 bytes → 20GB for 4096×300×256
+// Compact version: 3 floats = 12 bytes → 4GB for 4096×300×256
 
 #endif // FORWARD_CACHE_CUH
 
