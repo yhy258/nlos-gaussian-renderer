@@ -10,7 +10,6 @@ Efficient ray-based volume rendering for NLOS (Non-Line-of-Sight) reconstruction
 - **Forward caching**: Cache expensive computations (PDF, SH evaluation) to eliminate recomputation in backward pass
 - **Optimized backward pass**: Local gradient accumulation + forward cache = 1.5-2× faster training
 - **Memory efficient**: Avoids computing all Gaussians × all sample points
-- **Analytic rendering**: Section-based analytic integration for ~100× speedup (optional)
 
 ## Installation
 
