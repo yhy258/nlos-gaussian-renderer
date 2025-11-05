@@ -61,6 +61,10 @@ loss_compare.mat
 output_point_cloud.ply
 output_poisson_mesh.ply
 data/
+test_albedo_coords.py
+test_cuda_autograd.py
+test_cuda_renderer.py
+test_simple_autograd.py
 
 # Temporary
 *.log
