@@ -2,6 +2,8 @@
 #include "ray_aabb.h"
 #include "volume_renderer.h"
 #include "volume_renderer_backward.h"
+#include "simple_volume_renderer.h"
+#include "simple_volume_renderer_backward.h"
 
 // Forward declarations for coordinate-based rendering
 torch::Tensor compute_albedo_at_coords(
@@ -44,6 +46,12 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     
     m.def("render_rays_backward", &render_rays_backward,
           "Backward pass for volume rendering (CUDA)");
+    
+    m.def("simple_render_rays", &simple_render_rays,
+          "Per-ray volume rendering with transmittance (CUDA) - Simple Version");
+    
+    m.def("simple_render_rays_backward", &simple_render_rays_backward,
+          "Backward pass for simple volume rendering (CUDA)");
     
     m.def("compute_albedo_at_coords", &compute_albedo_at_coords,
           "Compute albedo at given 3D coordinates (CUDA)");

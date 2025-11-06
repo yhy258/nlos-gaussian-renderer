@@ -45,6 +45,7 @@ class CUDARenderFunction(torch.autograd.Function):
         deltaT: float,
         scaling_modifier: float,
         use_occlusion: bool,
+        rendering_mode: str = 'simple',
         memory_mode: str = 'shared'         # 'shared' or 'global'
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
@@ -62,16 +63,18 @@ class CUDARenderFunction(torch.autograd.Function):
             raise RuntimeError("CUDA renderer not available")
 
         # Select kernel based on memory mode
-        if memory_mode == 'shared':
+        if memory_mode == 'shared' and rendering_mode != 'simple':
             render_fn = _C.render_rays_shared
-        elif memory_mode == 'global':
+        elif memory_mode == 'global' or rendering_mode =='simple':
             render_fn = _C.render_rays_global
         else:
             raise ValueError(f"Invalid memory_mode: {memory_mode}. Use 'shared' or 'global'")
 
+        if rendering_mode == 'simple':
+            use_occlusion = False
         # Call CUDA forward kernel (ensure contiguous for CUDA)
         # NEW: Forward now returns 6 values including forward_cache!
-        if memory_mode == 'shared':
+        if memory_mode == 'shared' and rendering_mode != 'simple':
             # Shared memory returns cache
             rho_density, density, transmittance, gaussian_bboxes, gaussian_filter, forward_cache = render_fn(
                 ray_origins.contiguous(),
@@ -233,6 +236,7 @@ class CUDARenderFunction(torch.autograd.Function):
             None,  # deltaT
             None,  # scaling_modifier
             None,  # use_occlusion
+            None,
             None
         )
 
@@ -269,7 +273,8 @@ class CUDARenderModule(nn.Module):
         c: float,
         deltaT: float,
         scaling_modifier: float = 1.0,
-        use_occlusion: bool = True
+        use_occlusion: bool = True,
+        rendering_mode: str = 'simple'
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass through CUDA renderer
@@ -339,7 +344,8 @@ class CUDARenderModule(nn.Module):
             c,
             deltaT,
             scaling_modifier,
-            use_occlusion
+            use_occlusion,
+            rendering_mode
         )
         
         # Reshape and apply geometric attenuation

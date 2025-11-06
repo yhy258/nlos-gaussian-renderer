@@ -17,6 +17,8 @@ setup(
                 'src/volume_renderer_backward.cu',
                 'src/volume_renderer.cu',
                 'src/various_renderer_coords.cu',
+                'src/simple_volume_renderer.cu',
+                'src/simple_volume_renderer_backward.cu',
             ],
             extra_compile_args={
                 'cxx': ['-O3', '-std=c++17'],
