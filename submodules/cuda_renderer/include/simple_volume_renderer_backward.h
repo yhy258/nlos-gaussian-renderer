@@ -21,6 +21,8 @@ std::tuple<
 > simple_render_rays_backward(
     // Forward pass outputs (for recomputation if needed)
     const torch::Tensor& rho_density,            // [N_rays, N_samples
+    const torch::Tensor& density,                // [N_rays, N_samples]
+    const torch::Tensor& transmittance,          // [N_rays, N_samples]
     
     // Gradient inputs (from upstream)
     const torch::Tensor& grad_rho_density,       // [N_rays, N_samples]
