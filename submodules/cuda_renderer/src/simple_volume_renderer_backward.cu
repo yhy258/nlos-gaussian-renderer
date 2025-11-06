@@ -126,6 +126,13 @@ __global__ void simple_volume_render_backward_kernel(
     float local_grad_rotations[MAX_GAUSSIANS_PER_RAY * 4];
     float local_grad_opacities[MAX_GAUSSIANS_PER_RAY];
     float local_grad_features[MAX_GAUSSIANS_PER_RAY * 16];  // Assuming max SH degree 3
+
+    // Store per-Gaussian intermediate values for gradient computation
+    float pdf_values[MAX_GAUSSIANS_PER_RAY];
+    float opacity_values[MAX_GAUSSIANS_PER_RAY];
+    float rho_values[MAX_GAUSSIANS_PER_RAY];
+    float alpha_values[MAX_GAUSSIANS_PER_RAY];
+    float contrib_values[MAX_GAUSSIANS_PER_RAY];
     
     // Initialize to zero
     for (int i = 0; i < num_gaussians; i++) {
@@ -167,13 +174,6 @@ __global__ void simple_volume_render_backward_kernel(
         // ============================================================
         
         float weighted_alphas_s = 0.0f;
-        
-        // Store per-Gaussian intermediate values for gradient computation
-        float pdf_values[MAX_GAUSSIANS_PER_RAY];
-        float opacity_values[MAX_GAUSSIANS_PER_RAY];
-        float rho_values[MAX_GAUSSIANS_PER_RAY];
-        float alpha_values[MAX_GAUSSIANS_PER_RAY];
-        float contrib_values[MAX_GAUSSIANS_PER_RAY];
         
     
         
