@@ -29,9 +29,9 @@ __global__ void compute_gaussian_bboxes_kernel(
     );
     
     float3 scale = make_float3(
-        expf(gaussian_scales[idx * 3 + 0]) * scaling_modifier,
-        expf(gaussian_scales[idx * 3 + 1]) * scaling_modifier,
-        expf(gaussian_scales[idx * 3 + 2]) * scaling_modifier
+        gaussian_scales[idx * 3 + 0],
+        gaussian_scales[idx * 3 + 1],
+        gaussian_scales[idx * 3 + 2]
     );
     
     float4 quat = make_float4(
