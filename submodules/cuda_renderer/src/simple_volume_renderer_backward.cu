@@ -4,6 +4,7 @@
 #include "cuda_utils.cuh"
 #include "backward_utils.cuh"
 #include "spherical_harmonics.cuh"
+#include "forward_cache.cuh"
 #include "simple_volume_renderer_backward.h"
 
 #define THREADS_PER_BLOCK 256
@@ -221,7 +222,14 @@ __global__ void simple_volume_render_backward_kernel(
             // global grad = local grad * grad_output_s
             // --- Local gradient ---
             if (use_occlusion) {
-                break;
+                float3 grad_mean_from_sh = make_float3(0.0f, 0.0f, 0.0f);
+                float3 grad_mean_from_pdf = make_float3(0.0f, 0.0f, 0.0f);
+                float3 grad_log_scale = make_float3(0.0f, 0.0f, 0.0f);
+                float4 grad_quat = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+                float opacity_gradient = 0.0f;
+                float3 grad_sh_wrt_dir = make_float3(0.0f, 0.0f, 0.0f);
+                float3 grad_mean_from_sh = make_float3(0.0f, 0.0f, 0.0f);
+                float3 mean_gradient = make_float3(0.0f, 0.0f, 0.0f);
             } else {
                 // mean gradient
                 // 1. Gradient w.r.t. mean (via PDF)
