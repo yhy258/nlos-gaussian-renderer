@@ -297,6 +297,50 @@ __device__ __forceinline__ float3 grad_gaussian_pdf_wrt_log_scale(
     return grad_log_scale;
 }
 
+__device__ __forceinline__ float3 grad_gaussian_pdf_wrt_scale(
+    const float3& pos,
+    const float3& mean,
+    const float3& scale,
+    const float4& quat,
+    const float pdf_value
+) {
+    // Transform to local frame
+    float R[9];
+    quat_to_rotmat(quat, R);
+    
+    float3 delta = pos - mean;
+    
+    // delta_local = R^T * delta
+    float3 delta_local = make_float3(
+        R[0] * delta.x + R[3] * delta.y + R[6] * delta.z,
+        R[1] * delta.x + R[4] * delta.y + R[7] * delta.z,
+        R[2] * delta.x + R[5] * delta.y + R[8] * delta.z
+    );
+    
+    // Normalized delta
+    const float eps = 1e-8f;
+    float3 normalized = make_float3(
+        delta_local.x / (scale.x + eps),
+        delta_local.y / (scale.y + eps),
+        delta_local.z / (scale.z + eps)
+    );
+    
+    // Mahalanobis distance squared components
+    float3 mahal_sq_components = make_float3(
+        normalized.x * normalized.x,
+        normalized.y * normalized.y,
+        normalized.z * normalized.z
+    );
+    
+    // Gradient w.r.t. scale: pdf * mahal_sq / scale
+    float3 grad_scale = make_float3(
+        pdf_value * mahal_sq_components.x / (scale.x + eps),
+        pdf_value * mahal_sq_components.y / (scale.y + eps),
+        pdf_value * mahal_sq_components.z / (scale.z + eps)
+    );
+    
+    return grad_scale;
+}
 /**
  * Compute gradient of Gaussian PDF w.r.t. quaternion
  * 

@@ -127,7 +127,7 @@ __global__ void volume_render_backward_kernel(
     // Allocate local gradient buffers for each Gaussian
     // We only allocate for filtered Gaussians (not all N_gaussians)
     float local_grad_means[MAX_GAUSSIANS_PER_RAY * 3];
-    float local_grad_log_scales[MAX_GAUSSIANS_PER_RAY * 3];
+    float local_grad_scales[MAX_GAUSSIANS_PER_RAY * 3];
     float local_grad_rotations[MAX_GAUSSIANS_PER_RAY * 4];
     float local_grad_opacities[MAX_GAUSSIANS_PER_RAY];
     float local_grad_features[MAX_GAUSSIANS_PER_RAY * 16];  // Assuming max SH degree 3
@@ -138,9 +138,9 @@ __global__ void volume_render_backward_kernel(
         local_grad_means[i * 3 + 1] = 0.0f;
         local_grad_means[i * 3 + 2] = 0.0f;
         
-        local_grad_log_scales[i * 3 + 0] = 0.0f;
-        local_grad_log_scales[i * 3 + 1] = 0.0f;
-        local_grad_log_scales[i * 3 + 2] = 0.0f;
+        local_grad_scales[i * 3 + 0] = 0.0f;
+        local_grad_scales[i * 3 + 1] = 0.0f;
+        local_grad_scales[i * 3 + 2] = 0.0f;
         
         local_grad_rotations[i * 4 + 0] = 0.0f;
         local_grad_rotations[i * 4 + 1] = 0.0f;
@@ -238,9 +238,9 @@ __global__ void volume_render_backward_kernel(
                     );
                     
                     float3 scale = make_float3(
-                        expf(gaussian_scales[g * 3 + 0]) * scaling_modifier,
-                        expf(gaussian_scales[g * 3 + 1]) * scaling_modifier,
-                        expf(gaussian_scales[g * 3 + 2]) * scaling_modifier
+                        gaussian_scales[g * 3 + 0],
+                        gaussian_scales[g * 3 + 1],
+                        gaussian_scales[g * 3 + 2]
                     );
                     
                     float4 quat = make_float4(
@@ -250,7 +250,7 @@ __global__ void volume_render_backward_kernel(
                         gaussian_rotations[g * 4 + 3]
                     );
                     
-                    float opacity = 1.0f / (1.0f + expf(-gaussian_opacities[g]));
+                    float opacity = gaussian_opacities[g];
                     float pdf = eval_gaussian_pdf(pos, mean, scale, quat);
                     
                     // View-dependent albedo
@@ -285,9 +285,9 @@ __global__ void volume_render_backward_kernel(
                 );
                 
                 float3 scale = make_float3(
-                    expf(gaussian_scales[g * 3 + 0]) * scaling_modifier,
-                    expf(gaussian_scales[g * 3 + 1]) * scaling_modifier,
-                    expf(gaussian_scales[g * 3 + 2]) * scaling_modifier
+                    gaussian_scales[g * 3 + 0],
+                    gaussian_scales[g * 3 + 1],
+                    gaussian_scales[g * 3 + 2]
                 );
                 
                 float4 quat = make_float4(
@@ -297,7 +297,7 @@ __global__ void volume_render_backward_kernel(
                     gaussian_rotations[g * 4 + 3]
                 );
                 
-                float opacity = 1.0f / (1.0f + expf(-gaussian_opacities[g]));
+                float opacity = gaussian_opacities[g];
                 float pdf = eval_gaussian_pdf(pos, mean, scale, quat);
                 
                 float3 view_dir = normalize(mean - cam_pos);
@@ -362,9 +362,9 @@ __global__ void volume_render_backward_kernel(
             );
             
             float3 scale = make_float3(
-                expf(gaussian_scales[g * 3 + 0]) * scaling_modifier,
-                expf(gaussian_scales[g * 3 + 1]) * scaling_modifier,
-                expf(gaussian_scales[g * 3 + 2]) * scaling_modifier
+                gaussian_scales[g * 3 + 0],
+                gaussian_scales[g * 3 + 1],
+                gaussian_scales[g * 3 + 2]
             );
             
             float4 quat = make_float4(
@@ -482,16 +482,16 @@ __global__ void volume_render_backward_kernel(
             local_grad_means[i * 3 + 2] += grad_mean_total.z;
             
             // 2. Gradient w.r.t. log-scale (via PDF)
-            float3 grad_log_scale_local = grad_gaussian_pdf_wrt_log_scale(pos, mean, scale, quat, pdf);
-            grad_log_scale_local = grad_log_scale_local * grad_pdf;
+            float3 grad_scale_local = grad_gaussian_pdf_wrt_scale(pos, mean, scale, quat, pdf);
+            grad_scale_local = grad_scale_local * grad_pdf;
             
-            local_grad_log_scales[i * 3 + 0] += grad_log_scale_local.x;
-            local_grad_log_scales[i * 3 + 1] += grad_log_scale_local.y;
-            local_grad_log_scales[i * 3 + 2] += grad_log_scale_local.z;
+            local_grad_scales[i * 3 + 0] += grad_scale_local.x;
+            local_grad_scales[i * 3 + 1] += grad_scale_local.y;
+            local_grad_scales[i * 3 + 2] += grad_scale_local.z;
             
             // 3. Gradient w.r.t. logit-opacity (via contribution)
-            float grad_logit_opacity = grad_opacity_local * grad_sigmoid(opacity);
-            local_grad_opacities[i] += grad_logit_opacity;
+            float grad_opacity = grad_opacity_local;
+            local_grad_opacities[i] += grad_opacity;
             
             // 4. Gradient w.r.t. quaternion (via PDF)
             float4 grad_quat_local = grad_gaussian_pdf_wrt_quaternion(pos, mean, scale, quat, pdf);
@@ -536,10 +536,10 @@ __global__ void volume_render_backward_kernel(
         }
         
         // Log scales
-        if (local_grad_log_scales[i * 3 + 0] != 0.0f || local_grad_log_scales[i * 3 + 1] != 0.0f || local_grad_log_scales[i * 3 + 2] != 0.0f) {
-            atomicAdd(&grad_log_scales[g * 3 + 0], local_grad_log_scales[i * 3 + 0]);
-            atomicAdd(&grad_log_scales[g * 3 + 1], local_grad_log_scales[i * 3 + 1]);
-            atomicAdd(&grad_log_scales[g * 3 + 2], local_grad_log_scales[i * 3 + 2]);
+        if (local_grad_scales[i * 3 + 0] != 0.0f || local_grad_scales[i * 3 + 1] != 0.0f || local_grad_scales[i * 3 + 2] != 0.0f) {
+            atomicAdd(&grad_log_scales[g * 3 + 0], local_grad_scales[i * 3 + 0]);
+            atomicAdd(&grad_log_scales[g * 3 + 1], local_grad_scales[i * 3 + 1]);
+            atomicAdd(&grad_log_scales[g * 3 + 2], local_grad_scales[i * 3 + 2]);
         }
         
         // Rotations

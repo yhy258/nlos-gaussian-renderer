@@ -66,9 +66,9 @@ __global__ void simple_albedo_coords_kernel(
         );
         
         float3 scale = make_float3(
-            expf(gaussian_scales[g * 3 + 0]) * scaling_modifier,
-            expf(gaussian_scales[g * 3 + 1]) * scaling_modifier,
-            expf(gaussian_scales[g * 3 + 2]) * scaling_modifier
+            gaussian_scales[g * 3 + 0],
+            gaussian_scales[g * 3 + 1],
+            gaussian_scales[g * 3 + 2]
         );
         
         float4 quat = make_float4(
@@ -78,7 +78,7 @@ __global__ void simple_albedo_coords_kernel(
             gaussian_rotations[g * 4 + 3]
         );
         
-        float opacity = 1.0f / (1.0f + expf(-gaussian_opacities[g]));
+        float opacity = gaussian_opacities[g];
 
         float pdf = eval_gaussian_pdf(pos, mean, scale, quat);
         
@@ -146,9 +146,9 @@ __global__ void simple_density_coords_kernel(
         );
         
         float3 scale = make_float3(
-            expf(gaussian_scales[g * 3 + 0]) * scaling_modifier,
-            expf(gaussian_scales[g * 3 + 1]) * scaling_modifier,
-            expf(gaussian_scales[g * 3 + 2]) * scaling_modifier
+            gaussian_scales[g * 3 + 0],
+            gaussian_scales[g * 3 + 1],
+            aussian_scales[g * 3 + 2]
         );
         
         float4 quat = make_float4(
@@ -158,7 +158,7 @@ __global__ void simple_density_coords_kernel(
             gaussian_rotations[g * 4 + 3]
         );
         
-        float opacity = 1.0f / (1.0f + expf(-gaussian_opacities[g]));
+        float opacity = gaussian_opacities[g];
 
         float pdf = eval_gaussian_pdf(pos, mean, scale, quat);
         

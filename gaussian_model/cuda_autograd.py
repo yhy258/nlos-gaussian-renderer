@@ -331,9 +331,9 @@ class CUDARenderModule(nn.Module):
         
         # Get Gaussian parameters (with gradients!)
         gaussian_means = gaussian_model.get_mu
-        gaussian_scales = gaussian_model._scaling
+        gaussian_scales = gaussian_model.get_scaling
         gaussian_rotations = gaussian_model._rotation
-        gaussian_opacities = gaussian_model._opacity
+        gaussian_opacities = gaussian_model.get_opacity
         gaussian_features = gaussian_model.get_features.squeeze(-1)
         # gaussian_features = gaussian_model.get_features_dc.squeeze(1)
         

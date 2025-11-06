@@ -58,7 +58,7 @@ __global__ void simple_volume_render_backward_kernel(
     
     // Gradient outputs (accumulated via atomicAdd)
     float* __restrict__ grad_means,       // [N_gaussians, 3]
-    float* __restrict__ grad_log_scales,  // [N_gaussians, 3]
+    float* __restrict__ grad_scales,  // [N_gaussians, 3]
     float* __restrict__ grad_rotations,   // [N_gaussians, 4]
     float* __restrict__ grad_opacities,   // [N_gaussians, 1]
     float* __restrict__ grad_features     // [N_gaussians, K]
@@ -122,7 +122,7 @@ __global__ void simple_volume_render_backward_kernel(
     // Allocate local gradient buffers for each Gaussian
     // We only allocate for filtered Gaussians (not all N_gaussians)
     float local_grad_means[MAX_GAUSSIANS_PER_RAY * 3];
-    float local_grad_log_scales[MAX_GAUSSIANS_PER_RAY * 3];
+    float local_grad_scales[MAX_GAUSSIANS_PER_RAY * 3];
     float local_grad_rotations[MAX_GAUSSIANS_PER_RAY * 4];
     float local_grad_opacities[MAX_GAUSSIANS_PER_RAY];
     float local_grad_features[MAX_GAUSSIANS_PER_RAY * 16];  // Assuming max SH degree 3
@@ -133,9 +133,9 @@ __global__ void simple_volume_render_backward_kernel(
         local_grad_means[i * 3 + 1] = 0.0f;
         local_grad_means[i * 3 + 2] = 0.0f;
         
-        local_grad_log_scales[i * 3 + 0] = 0.0f;
-        local_grad_log_scales[i * 3 + 1] = 0.0f;
-        local_grad_log_scales[i * 3 + 2] = 0.0f;
+        local_grad_scales[i * 3 + 0] = 0.0f;
+        local_grad_scales[i * 3 + 1] = 0.0f;
+        local_grad_scales[i * 3 + 2] = 0.0f;
         
         local_grad_rotations[i * 4 + 0] = 0.0f;
         local_grad_rotations[i * 4 + 1] = 0.0f;
@@ -196,9 +196,9 @@ __global__ void simple_volume_render_backward_kernel(
             );
             
             float3 scale = make_float3(
-                expf(gaussian_scales[g * 3 + 0]) * scaling_modifier,
-                expf(gaussian_scales[g * 3 + 1]) * scaling_modifier,
-                expf(gaussian_scales[g * 3 + 2]) * scaling_modifier
+                gaussian_scales[g * 3 + 0],
+                gaussian_scales[g * 3 + 1],
+                gaussian_scales[g * 3 + 2]
             );
             
             float4 quat = make_float4(
@@ -207,7 +207,7 @@ __global__ void simple_volume_render_backward_kernel(
                 gaussian_rotations[g * 4 + 2],
                 gaussian_rotations[g * 4 + 3]
             );
-            float opacity = 1.0f / (1.0f + expf(-gaussian_opacities[g]));
+            float opacity = gaussian_opacities[g];
             float pdf = eval_gaussian_pdf(pos, mean, scale, quat);
                 
             float3 view_dir = normalize(mean - cam_pos);
@@ -257,10 +257,10 @@ __global__ void simple_volume_render_backward_kernel(
 
 
                 // scale, quaternion gradient
-                float3 grad_log_scale = grad_output_s * opacity * rho * grad_gaussian_pdf_wrt_log_scale(pos, mean, scale, quat, pdf);
-                local_grad_log_scales[i * 3 + 0] += grad_log_scale.x;
-                local_grad_log_scales[i * 3 + 1] += grad_log_scale.y;
-                local_grad_log_scales[i * 3 + 2] += grad_log_scale.z;
+                float3 grad_scale = grad_output_s * opacity * rho * grad_gaussian_pdf_wrt_scale(pos, mean, scale, quat, pdf);
+                local_grad_scales[i * 3 + 0] += grad_scale.x;
+                local_grad_scales[i * 3 + 1] += grad_scale.y;
+                local_grad_scales[i * 3 + 2] += grad_scale.z;
 
                 float4 grad_quat = grad_output_s * opacity * rho * grad_gaussian_pdf_wrt_quaternion(pos, mean, scale, quat, pdf);
                 local_grad_rotations[i * 4 + 0] += grad_quat.x;
@@ -269,7 +269,7 @@ __global__ void simple_volume_render_backward_kernel(
                 local_grad_rotations[i * 4 + 3] += grad_quat.w;
 
                 // opacity gradient
-                float opacity_gradient = grad_output_s * rho * pdf * grad_sigmoid(opacity);
+                float opacity_gradient = grad_output_s * rho * pdf;
                 local_grad_opacities[i] += opacity_gradient;
 
                 // feature gradient
@@ -300,10 +300,10 @@ __global__ void simple_volume_render_backward_kernel(
         }
         
         // Log scales
-        if (local_grad_log_scales[i * 3 + 0] != 0.0f || local_grad_log_scales[i * 3 + 1] != 0.0f || local_grad_log_scales[i * 3 + 2] != 0.0f) {
-            atomicAdd(&grad_log_scales[g * 3 + 0], local_grad_log_scales[i * 3 + 0]);
-            atomicAdd(&grad_log_scales[g * 3 + 1], local_grad_log_scales[i * 3 + 1]);
-            atomicAdd(&grad_log_scales[g * 3 + 2], local_grad_log_scales[i * 3 + 2]);
+        if (local_grad_scales[i * 3 + 0] != 0.0f || local_grad_scales[i * 3 + 1] != 0.0f || local_grad_scales[i * 3 + 2] != 0.0f) {
+            atomicAdd(&grad_scales[g * 3 + 0], local_grad_scales[i * 3 + 0]);
+            atomicAdd(&grad_scales[g * 3 + 1], local_grad_scales[i * 3 + 1]);
+            atomicAdd(&grad_scales[g * 3 + 2], local_grad_scales[i * 3 + 2]);
         }
         
         // Rotations
@@ -377,7 +377,7 @@ std::tuple<
     auto options = torch::TensorOptions().dtype(torch::kFloat32).device(ray_origins.device());
     
     torch::Tensor grad_means = torch::zeros({N_gaussians, 3}, options);
-    torch::Tensor grad_log_scales = torch::zeros({N_gaussians, 3}, options);
+    torch::Tensor grad_scales = torch::zeros({N_gaussians, 3}, options);
     torch::Tensor grad_rotations = torch::zeros({N_gaussians, 4}, options);
     torch::Tensor grad_opacities = torch::zeros({N_gaussians, 1}, options);
     torch::Tensor grad_features = torch::zeros({N_gaussians, sh_dim}, options);
@@ -414,7 +414,7 @@ std::tuple<
         scaling_modifier,
         use_occlusion,
         grad_means.data_ptr<float>(),
-        grad_log_scales.data_ptr<float>(),
+        grad_scales.data_ptr<float>(),
         grad_rotations.data_ptr<float>(),
         grad_opacities.data_ptr<float>(),
         grad_features.data_ptr<float>()
@@ -424,7 +424,7 @@ std::tuple<
     
     return std::make_tuple(
         grad_means,
-        grad_log_scales,
+        grad_scales,
         grad_rotations,
         grad_opacities,
         grad_features

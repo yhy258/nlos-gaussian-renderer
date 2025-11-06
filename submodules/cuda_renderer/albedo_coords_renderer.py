@@ -35,6 +35,7 @@ def compute_albedo_at_coords(
     """
     try:
         from nlos_gaussian_renderer._C import compute_albedo_at_coords as _compute_albedo
+        from nlos_gaussian_renderer._C import simple_compute_albedo_at_coords as _simple_compute_albedo
     except ImportError:
         raise ImportError(
             "CUDA renderer not built. Please run:\n"
@@ -64,19 +65,33 @@ def compute_albedo_at_coords(
     camera_pos = camera_pos.contiguous().to(device)
     
     # Call CUDA kernel with AABB filtering
-    albedo = _compute_albedo(
-        coords,
-        gaussian_means,
-        gaussian_scales_activated,
-        gaussian_rotations,
-        gaussian_opacities_activated,
-        gaussian_features,
-        camera_pos,
-        active_sh_degree,
-        scaling_modifier,
-        sigma_threshold
-    )
-    
+    if gaussian_model.rendering_mode == 'simple':
+        albedo = _simple_compute_albedo(
+            coords,
+            gaussian_means,
+            gaussian_scales_activated,
+            gaussian_rotations,
+            gaussian_opacities_activated,
+            gaussian_features,
+            camera_pos,
+            active_sh_degree,
+            scaling_modifier,
+            sigma_threshold
+        )
+    else:
+        albedo = _compute_albedo(
+            coords,
+            gaussian_means,
+            gaussian_scales_activated,
+            gaussian_rotations,
+            gaussian_opacities_activated,
+            gaussian_features,
+            camera_pos,
+            active_sh_degree,
+            scaling_modifier,
+            sigma_threshold
+        )
+
     return albedo
 
 
@@ -103,6 +118,7 @@ def compute_density_at_coords(
     """
     try:
         from nlos_gaussian_renderer._C import compute_density_at_coords as _compute_density
+        from nlos_gaussian_renderer._C import simple_compute_density_at_coords as _simple_compute_density
     except ImportError:
         raise ImportError(
             "CUDA renderer not built. Please run:\n"
@@ -110,6 +126,7 @@ def compute_density_at_coords(
         )
     
     # Ensure inputs are contiguous and on the same device
+    # Scales and Opacities are activated. (exp and log activation)
     device = coords.device
     coords = coords.contiguous().to(device)
     gaussian_means = gaussian_model.get_mu.contiguous().to(device)
@@ -119,15 +136,26 @@ def compute_density_at_coords(
     gaussian_features = gaussian_model.get_features.contiguous().to(device)
     
     # Call CUDA kernel with AABB filtering
-    density = _compute_density(
-        coords,
-        gaussian_means,
-        gaussian_scales,
-        gaussian_rotations,
-        gaussian_opacities,
-        scaling_modifier,
-        sigma_threshold
-    )
+    if gaussian_model.rendering_mode == 'simple':
+        density = _simple_compute_density(
+            coords,
+            gaussian_means,
+            gaussian_scales,
+            gaussian_rotations,
+            gaussian_opacities,
+            scaling_modifier,
+            sigma_threshold
+        )
+    else:   
+        density = _compute_density(
+            coords,
+            gaussian_means,
+            gaussian_scales,
+            gaussian_rotations,
+            gaussian_opacities,
+            scaling_modifier,
+            sigma_threshold
+        )
     
     return density
 
