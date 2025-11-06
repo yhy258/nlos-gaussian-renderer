@@ -224,7 +224,7 @@ __global__ void simple_volume_render_backward_kernel(
             float3 grad_mean_from_sh = make_float3(0.0f, 0.0f, 0.0f);
             float3 grad_mean_from_pdf = make_float3(0.0f, 0.0f, 0.0f);
             if (use_occlusion) {
-                break;
+                continue;
             } else {
                 // mean gradient
                 // 1. Gradient w.r.t. mean (via PDF)
