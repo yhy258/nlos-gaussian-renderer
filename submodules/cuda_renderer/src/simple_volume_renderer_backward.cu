@@ -221,18 +221,14 @@ __global__ void simple_volume_render_backward_kernel(
             
             // global grad = local grad * grad_output_s
             // --- Local gradient ---
+            float3 grad_mean_from_sh = make_float3(0.0f, 0.0f, 0.0f);
+            float3 grad_mean_from_pdf = make_float3(0.0f, 0.0f, 0.0f);
             if (use_occlusion) {
-                float3 grad_mean_from_sh = make_float3(0.0f, 0.0f, 0.0f);
-                float3 grad_mean_from_pdf = make_float3(0.0f, 0.0f, 0.0f);
-                float3 grad_log_scale = make_float3(0.0f, 0.0f, 0.0f);
-                float4 grad_quat = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
-                float opacity_gradient = 0.0f;
-                float3 grad_sh_wrt_dir = make_float3(0.0f, 0.0f, 0.0f);
-                float3 mean_gradient = make_float3(0.0f, 0.0f, 0.0f);
+                break;
             } else {
                 // mean gradient
                 // 1. Gradient w.r.t. mean (via PDF)
-                float3 grad_mean_from_pdf = grad_gaussian_pdf_wrt_mean(pos, mean, scale, quat, pdf);
+                grad_mean_from_pdf = grad_gaussian_pdf_wrt_mean(pos, mean, scale, quat, pdf);
 
                 // 2. Gradient w.r.t. mean (via view_dir → view-dependent reflectance path)
                 if (rho > 0.0f) {
@@ -246,13 +242,11 @@ __global__ void simple_volume_render_backward_kernel(
                         view_dir
                     );                
                     
-                    float3 grad_mean_from_sh = make_float3(
+                    grad_mean_from_sh = make_float3(
                         jacobian[0] * grad_sh_wrt_dir.x + jacobian[3] * grad_sh_wrt_dir.y + jacobian[6] * grad_sh_wrt_dir.z,
                         jacobian[1] * grad_sh_wrt_dir.x + jacobian[4] * grad_sh_wrt_dir.y + jacobian[7] * grad_sh_wrt_dir.z,
                         jacobian[2] * grad_sh_wrt_dir.x + jacobian[5] * grad_sh_wrt_dir.y + jacobian[8] * grad_sh_wrt_dir.z
                     );
-                } else {
-                    float3 grad_mean_from_sh = make_float3(0.0f, 0.0f, 0.0f);
                 }
 
                 float3 mean_gradient = grad_output_s * opacity * (rho * grad_mean_from_pdf + pdf * grad_mean_from_sh);
