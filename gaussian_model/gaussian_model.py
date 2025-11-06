@@ -10,9 +10,10 @@ try:
 except:
     KNN_FLAG = False
 try:
-    from diff_gaussian_rasterization import compute_relocation
+    from diff_gaussian_rasterization import compute_relocation, simple_compute_relocation
 except:
     compute_relocation = None
+    simple_compute_relocation = None
     raise Exception("There is no [diff_gaussian_rasterization: relocation func]")
 
 N_max = 51
@@ -24,6 +25,10 @@ for n in range(N_max):
 def compute_relocation_cuda(opacity_old, scale_old, N):
     N.clamp_(min=1, max=N_max-1)
     return compute_relocation(opacity_old, scale_old, N, binoms, N_max)
+
+def simple_compute_relocation_cuda(opacity_old, scale_old, N):
+    N.clamp_(min=1, max=N_max-1)
+    return simple_compute_relocation(opacity_old, scale_old, N, binoms, N_max)
 
 class GaussianModel:
     def setup_functions(self):
@@ -45,8 +50,9 @@ class GaussianModel:
 
 
 
-    def __init__(self, args, device):
+    def __init__(self, args, rendering_mode='simple', device='cpu'):
         self.args = args
+        self.rendering_mode = rendering_mode
         ### Albedo parameters (Spherical Harmonics or Constant)
         self.active_sh_degree = 0
         self.max_sh_degree = args.sh_degree # if we set the max_sh_degree == 0, this would be equal to the constant albedo.
@@ -505,11 +511,18 @@ class GaussianModel:
         return optimizable_tensors
 
     def _update_params(self, idxs, ratio):
-        new_opacity, new_scaling = compute_relocation_cuda(
-            opacity_old=self.get_opacity[idxs, 0],
-            scale_old=self.get_scaling[idxs],
-            N=ratio[idxs, 0] + 1
-        )
+        if self.rendering_mode == 'simple':
+            new_opacity, new_scaling = simple_compute_relocation_cuda(
+                opacity_old=self.get_opacity[idxs, 0],
+                scale_old=self.get_scaling[idxs],
+                N=ratio[idxs, 0] + 1
+            )
+        else:
+            new_opacity, new_scaling = compute_relocation_cuda(
+                opacity_old=self.get_opacity[idxs, 0],
+                scale_old=self.get_scaling[idxs],
+                N=ratio[idxs, 0] + 1
+            )
         new_opacity = torch.clamp(new_opacity.unsqueeze(-1), max=1.0 - torch.finfo(torch.float32).eps, min=0.005)
         new_opacity = self.inverse_opacity_activation(new_opacity)
         new_scaling = self.scaling_inverse_activation(new_scaling.reshape(-1, 3))
