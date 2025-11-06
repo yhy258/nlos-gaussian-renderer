@@ -315,6 +315,7 @@ def train(args, optim_args, device):
     # Create log dir and copy the config file
     basedir = args.basedir
     expname = args.expname
+    expdir = os.path.join(basedir, expname)
     os.makedirs(os.path.join(basedir, expname), exist_ok=True)
     f = os.path.join(basedir, expname, 'args.txt')
     with open(f, 'w') as file:
@@ -322,13 +323,10 @@ def train(args, optim_args, device):
             attr = getattr(args, arg)
             file.write('{} = {}\n'.format(arg, attr))
 
-    extrapath = './model/'
+    extrapath = f'.{expdir}/model/'
     if not os.path.exists(extrapath):
         os.makedirs(extrapath)
-    extrapath = './figure/'
-    if not os.path.exists(extrapath):
-        os.makedirs(extrapath)
-    extrapath = './figure/test'
+    extrapath = f'.{expdir}/figure/'
     if not os.path.exists(extrapath):
         os.makedirs(extrapath)
 

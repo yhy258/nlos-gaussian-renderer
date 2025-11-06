@@ -48,8 +48,10 @@ def gaussian2volume(args, model: GaussianModel, coords, data_kwargs, camera_pos,
         albedo = compute_albedo_at_coords(coords, model, camera_pos) # H, W, D
 
         # density and albedo save
-        model_save_rel_dir = args.model_save_rel_dir
-        model_dir = model_save_rel_dir
+        basedir = args.basedir
+        expname = args.expname
+        expdir = os.path.join(basedir, expname)
+        model_dir = os.path.join(expdir, 'model')
         os.makedirs(f'./{model_dir}/iter{current_iter}_save/volume', exist_ok=True)
         np.save(f'./{model_dir}/iter{current_iter}_save/volume/density.npy', density.cpu().numpy())
         np.save(f'./{model_dir}/iter{current_iter}_save/volume/albedo.npy', albedo.cpu().numpy())
@@ -357,6 +359,11 @@ def compute_loss(args, model: GaussianModel, data_kwargs: dict, optim_kwargs: di
     if args.save_fig:
         # i: epoch (not iteration.)
         if (optim_kwargs['current_iter'] % args.save_hist_fig_interval == 0):
+            basedir = args.basedir
+            expname = args.expname
+            expdir = os.path.join(basedir, expname)
+            figure_dir = os.path.join(expdir, 'figure')
+            os.makedirs(figure_dir, exist_ok=True)
             loss_show = equal_loss.cpu().detach().numpy()
             plt.plot(nlos_histogram.cpu(), alpha=0.5, label='data')
             plt.plot(pred_histogram.cpu().detach().numpy(), alpha = 0.5, label='predicted')
@@ -364,8 +371,7 @@ def compute_loss(args, model: GaussianModel, data_kwargs: dict, optim_kwargs: di
             plt.legend(loc='upper right')
             # plt.title('grid position:' + str(x0) + ' ' + str(z0))
             plt.title('grid position:' + str(format(current_camera_grid_positions[0].item(), '.4f')) + ' ' + str(format(current_camera_grid_positions[2].item(), '.4f')) + ' equal loss:' + str(format(loss_show, '.8f')) + ' coffe:' + str(format(loss_coffe.cpu().detach().numpy(), '.8f')))
-            os.makedirs(f'./figure/', exist_ok=True)
-            plt.savefig(f'./figure/' + str(optim_kwargs['current_iter']) + '_' + str(m) + '_' + str(n))
+            plt.savefig(figure_dir + "/" + str(optim_kwargs['current_iter']) + '_' + str(m) + '_' + str(n))
             plt.close()
 
     mdic = {'nlos':nlos_histogram.cpu().detach().numpy(),'pred':pred_histogram.cpu().detach().numpy()}
