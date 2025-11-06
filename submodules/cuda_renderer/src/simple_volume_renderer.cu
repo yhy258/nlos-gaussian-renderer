@@ -124,7 +124,7 @@ __global__ void simple_volume_render_kernel_global(
 // ============================================================
 // OPTIMIZED: Shared Memory Version
 // ============================================================
-__global__ void volume_render_kernel_shared(
+__global__ void simple_volume_render_kernel_shared(
     const float* __restrict__ ray_origins,        // [N_rays, 3]
     const float* __restrict__ ray_directions,     // [N_rays, 3]
     const float* __restrict__ t_samples,          // [N_samples]
@@ -364,7 +364,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
     // Launch SHARED MEMORY kernel
     const int blocks = (N_rays + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
     
-    volume_render_kernel_shared<<<blocks, THREADS_PER_BLOCK>>>(
+    simple_volume_render_kernel_shared<<<blocks, THREADS_PER_BLOCK>>>(
         ray_origins.data_ptr<float>(),
         ray_directions.data_ptr<float>(),
         t_samples.data_ptr<float>(),
