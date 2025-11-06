@@ -389,7 +389,10 @@ std::tuple<
     torch::Tensor grad_opacities = torch::zeros({N_gaussians, 1}, options);
     torch::Tensor grad_features = torch::zeros({N_gaussians, sh_dim}, options);
 
-    
+    const ForwardCache* cache_ptr = nullptr;
+    if (forward_cache.defined() && forward_cache.numel() > 0) {
+        cache_ptr = reinterpret_cast<const ForwardCache*>(forward_cache.data_ptr<uint8_t>());
+    }
     // Launch backward kernel
     const int blocks = (N_rays + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
     
@@ -405,6 +408,9 @@ std::tuple<
         gaussian_opacities.data_ptr<float>(),
         gaussian_features.data_ptr<float>(),
         camera_pos.data_ptr<float>(),
+        density.data_ptr<float>(),
+        transmittance.data_ptr<float>(),
+        cache_ptr,  // NEW! Forwar
         N_rays,
         N_samples,
         N_gaussians,
