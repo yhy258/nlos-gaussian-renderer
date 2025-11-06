@@ -126,13 +126,6 @@ __global__ void simple_volume_render_backward_kernel(
     float local_grad_rotations[MAX_GAUSSIANS_PER_RAY * 4];
     float local_grad_opacities[MAX_GAUSSIANS_PER_RAY];
     float local_grad_features[MAX_GAUSSIANS_PER_RAY * 16];  // Assuming max SH degree 3
-
-    // Store per-Gaussian intermediate values for gradient computation
-    float pdf_values[MAX_GAUSSIANS_PER_RAY];
-    float opacity_values[MAX_GAUSSIANS_PER_RAY];
-    float rho_values[MAX_GAUSSIANS_PER_RAY];
-    float alpha_values[MAX_GAUSSIANS_PER_RAY];
-    float contrib_values[MAX_GAUSSIANS_PER_RAY];
     
     // Initialize to zero
     for (int i = 0; i < num_gaussians; i++) {
@@ -174,7 +167,7 @@ __global__ void simple_volume_render_backward_kernel(
         // ============================================================
         
         float weighted_alphas_s = 0.0f;
-        
+             
     
         
         // ============================================================
@@ -182,6 +175,7 @@ __global__ void simple_volume_render_backward_kernel(
         // ============================================================
         
         for (int i = 0; i < num_gaussians; i++) {
+            int cache_idx = (ray_idx * N_samples + s) * MAX_GAUSSIANS_PER_RAY + i;
             int g = valid_gaussian_indices[i];
             if (g < 0 || g >= N_gaussians) continue;
             
@@ -207,12 +201,21 @@ __global__ void simple_volume_render_backward_kernel(
                 gaussian_rotations[g * 4 + 2],
                 gaussian_rotations[g * 4 + 3]
             );
-            float opacity = gaussian_opacities[g];
-            float pdf = eval_gaussian_pdf(pos, mean, scale, quat);
+
+            float pdf, rho;
+            if (cache_in != nullptr){
+                pdf = cache_in[cache_idx].pdf;
+                rho = cache_in[cache_idx].rho;
+            }
+            else{
+                pdf = eval_gaussian_pdf(pos, mean, scale, quat);
                 
-            float3 view_dir = normalize(mean - cam_pos);
-            float rho = eval_sh(active_sh_degree, &gaussian_features[g * sh_dim], view_dir);
-            rho = fmaxf(rho + 0.5f, 0.0f);
+                float3 view_dir = normalize(mean - cam_pos);
+                rho = eval_sh(active_sh_degree, &gaussian_features[g * sh_dim], view_dir);
+                rho = fmaxf(rho + 0.5f, 0.0f);
+
+            }
+            float opacity = gaussian_opacities[g];
 
             
             // ============================================================

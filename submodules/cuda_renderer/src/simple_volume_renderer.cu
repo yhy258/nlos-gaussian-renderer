@@ -270,7 +270,6 @@ __global__ void simple_volume_render_kernel_shared(
                 if (cache_out != nullptr) {
                     int cache_idx = (ray_idx * N_samples + s) * MAX_GAUSSIANS_PER_RAY + i;
                     cache_out[cache_idx].pdf = pdf;
-                    cache_out[cache_idx].opacity = opacity;
                     cache_out[cache_idx].rho = rho;
                 }
             }
