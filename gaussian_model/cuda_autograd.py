@@ -63,18 +63,18 @@ class CUDARenderFunction(torch.autograd.Function):
             raise RuntimeError("CUDA renderer not available")
 
         # Select kernel based on memory mode
-        if memory_mode == 'shared' and rendering_mode != 'simple':
+        if rendering_mode == 'simple':
+            render_fn = _C.simple_render_rays
+        elif memory_mode == 'shared':
             render_fn = _C.render_rays_shared
-        elif memory_mode == 'global' or rendering_mode =='simple':
+        elif memory_mode == 'global':
             render_fn = _C.render_rays_global
         else:
-            raise ValueError(f"Invalid memory_mode: {memory_mode}. Use 'shared' or 'global'")
+            raise ValueError(f"Invalid memory_mode: {memory_mode}. Use 'shared', 'global' or 'simple'")
 
-        if rendering_mode == 'simple':
-            use_occlusion = False
         # Call CUDA forward kernel (ensure contiguous for CUDA)
         # NEW: Forward now returns 6 values including forward_cache!
-        if memory_mode == 'shared' and rendering_mode != 'simple':
+        if memory_mode == 'shared':
             # Shared memory returns cache
             rho_density, density, transmittance, gaussian_bboxes, gaussian_filter, forward_cache = render_fn(
                 ray_origins.contiguous(),
@@ -128,7 +128,8 @@ class CUDARenderFunction(torch.autograd.Function):
             rho_density,
             density,
             transmittance,
-            forward_cache  # NEW!
+            forward_cache,  # NEW!
+            rendering_mode
         )
         ctx.active_sh_degree = active_sh_degree
         ctx.c = c
@@ -151,6 +152,8 @@ class CUDARenderFunction(torch.autograd.Function):
         Returns:
             Gradients for all forward inputs (None for non-learnable params)
         """
+
+        
         # Retrieve saved tensors (INCLUDING forward_cache!)
         (
             ray_origins,
@@ -166,8 +169,14 @@ class CUDARenderFunction(torch.autograd.Function):
             rho_density,
             density,
             transmittance,
-            forward_cache  # NEW!
+            forward_cache,  # NEW!
+            rendering_mode
         ) = ctx.saved_tensors
+
+        if rendering_mode == 'simple':
+            backward_render_fn = _C.simple_render_rays_backward
+        else:
+            backward_render_fn = _C.render_rays_backward
 
         # Initialize gradients
         grad_gaussian_means = None
@@ -186,7 +195,7 @@ class CUDARenderFunction(torch.autograd.Function):
 
         # Call backward kernel with forward_cache for fast computation!
         grad_gaussian_means_, grad_gaussian_scales_, grad_gaussian_rotations_, grad_gaussian_opacities_, grad_gaussian_features_ \
-                =_C.render_rays_backward(
+                =backward_render_fn(
                     rho_density,
                     density,
                     transmittance,

@@ -288,7 +288,7 @@ __global__ void volume_render_kernel_shared(
 // Wrapper Functions
 // ============================================================
 
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> render_rays_shared(
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> simple_render_rays_shared(
     const torch::Tensor& ray_origins,
     const torch::Tensor& ray_directions,
     const torch::Tensor& t_samples,
@@ -395,7 +395,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
     return std::make_tuple(rho_density, density, transmittance, gaussian_bboxes, gaussian_filter, forward_cache);
 }
 
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> render_rays_global(
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> simple_render_rays_global(
     const torch::Tensor& ray_origins,
     const torch::Tensor& ray_directions,
     const torch::Tensor& t_samples,
@@ -491,7 +491,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 }
 
 // Default: use shared memory version WITH forward cache
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> render_rays(
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> simple_render_rays(
     const torch::Tensor& ray_origins,
     const torch::Tensor& ray_directions,
     const torch::Tensor& t_samples,
@@ -508,7 +508,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
     const bool use_occlusion
 ) {
     // Default behavior: use optimized shared memory version with forward caching
-    return render_rays_shared(
+    return simple_render_rays_shared(
         ray_origins, ray_directions, t_samples,
         gaussian_means, gaussian_scales, gaussian_rotations,
         gaussian_opacities, gaussian_features, camera_pos,

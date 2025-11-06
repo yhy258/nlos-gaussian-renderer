@@ -170,66 +170,7 @@ __global__ void simple_volume_render_backward_kernel(
         float alpha_values[MAX_GAUSSIANS_PER_RAY];
         float contrib_values[MAX_GAUSSIANS_PER_RAY];
         
-        if (use_occlusion){
-            break;
-        } 
-        else {
-            for (int i = 0; i < num_gaussians; i++) {
-                int g = valid_gaussian_indices[i];
-                if (g < 0 || g >= N_gaussians) continue;
-                
-                float3 mean = make_float3(
-                    gaussian_means[g * 3 + 0],
-                    gaussian_means[g * 3 + 1],
-                    gaussian_means[g * 3 + 2]
-                );
-                
-                float3 scale = make_float3(
-                    expf(gaussian_scales[g * 3 + 0]) * scaling_modifier,
-                    expf(gaussian_scales[g * 3 + 1]) * scaling_modifier,
-                    expf(gaussian_scales[g * 3 + 2]) * scaling_modifier
-                );
-                
-                float4 quat = make_float4(
-                    gaussian_rotations[g * 4 + 0],
-                    gaussian_rotations[g * 4 + 1],
-                    gaussian_rotations[g * 4 + 2],
-                    gaussian_rotations[g * 4 + 3]
-                );
-                
-                float opacity = 1.0f / (1.0f + expf(-gaussian_opacities[g]));
-                float pdf = eval_gaussian_pdf(pos, mean, scale, quat);
-                
-                float3 view_dir = normalize(mean - cam_pos);
-                float rho = eval_sh(active_sh_degree, &gaussian_features[g * sh_dim], view_dir);
-                rho = fmaxf(rho + 0.5f, 0.0f);
-                
-                float contrib = pdf * opacity;
-                
-                pdf_values[i] = pdf;
-                opacity_values[i] = opacity;
-                rho_values[i] = rho;
-                alpha_values[i] = 0.0f;  // Not used in no-occlusion case
-                contrib_values[i] = contrib;
-            }
-        }
-        
-        // ============================================================
-        // Step 2: Compute local gradients
-        // ============================================================
-        
-        float grad_weighted_alphas_s = 0.0f;
-        float grad_T_s = 0.0f;
-        float grad_density_s = 0.0f;
-        
-        if (use_occlusion) {
-            break;
-        } else {
-            // No occlusion: simpler gradient flow
-            grad_weighted_alphas_s = grad_output_s;
-            grad_density_s = 0.0f;
-            grad_T_s = 0.0f;
-        }
+    
         
         // ============================================================
         // Step 3: Backpropagate to Gaussian parameters
@@ -261,23 +202,20 @@ __global__ void simple_volume_render_backward_kernel(
                 gaussian_rotations[g * 4 + 2],
                 gaussian_rotations[g * 4 + 3]
             );
-            
-            float pdf = pdf_values[i];
-            float opacity = opacity_values[i];
-            float rho = rho_values[i];
-            float alpha = alpha_values[i];
-            float contrib = contrib_values[i];
+            float opacity = 1.0f / (1.0f + expf(-gaussian_opacities[g]));
+            float pdf = eval_gaussian_pdf(pos, mean, scale, quat);
+                
+            float3 view_dir = normalize(mean - cam_pos);
+            float rho = eval_sh(active_sh_degree, &gaussian_features[g * sh_dim], view_dir);
+            rho = fmaxf(rho + 0.5f, 0.0f);
+
             
             // ============================================================
             // CRITICAL: Separate time-independent and time-dependent paths!
             // ============================================================
             
-            float grad_pdf = 0.0f;
-            float grad_opacity_local = 0.0f;
-            
             // global grad = local grad * grad_output_s
             // --- Local gradient ---
-            float grad_rho = 0.0f;
             if (use_occlusion) {
                 break;
             } else {
