@@ -228,7 +228,6 @@ __global__ void simple_volume_render_backward_kernel(
                 float4 grad_quat = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
                 float opacity_gradient = 0.0f;
                 float3 grad_sh_wrt_dir = make_float3(0.0f, 0.0f, 0.0f);
-                float3 grad_mean_from_sh = make_float3(0.0f, 0.0f, 0.0f);
                 float3 mean_gradient = make_float3(0.0f, 0.0f, 0.0f);
             } else {
                 // mean gradient
