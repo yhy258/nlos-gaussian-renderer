@@ -260,6 +260,7 @@ def gaussian_transient_rendering_cuda(args, model, data_kwargs, input_points, cu
         deltaT=data_kwargs['deltaT'],
         scaling_modifier=args.scaling_modifier,
         use_occlusion=args.occlusion,
+        rendering_mode=args.rendering_mode,
     )
 
     # Reshape to match original format [num_r, num_angular^2]

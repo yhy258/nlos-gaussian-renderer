@@ -36,7 +36,7 @@ class Config:
         self.space_carving_ratio = 0.99
         self.scaling_modifier = 1.
 
-        self.rendering_type = 'netf'
+        self.rendering_mode = 'simple'
         
         ## CUDA rendering
         self.use_cuda_renderer = True  # Set to True to use CUDA-accelerated ray-based rendering

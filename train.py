@@ -70,7 +70,7 @@ def update_lr(optimizer, args):
 
 def create_model(args, data_kwargs, optim_args, device, evaluation=False):
     # Create Gaussian Model
-    model = GaussianModel(args, device)
+    model = GaussianModel(args, args.rendering_mode, device)
 
     # initialize points and rhos
     if evaluation or args.space_carving_init == False:
