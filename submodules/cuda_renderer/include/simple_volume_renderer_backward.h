@@ -20,9 +20,7 @@ std::tuple<
     torch::Tensor   // grad_gaussian_features
 > simple_render_rays_backward(
     // Forward pass outputs (for recomputation if needed)
-    const torch::Tensor& rho_density,            // [N_rays, N_samples]
-    const torch::Tensor& density,                // [N_rays, N_samples]
-    const torch::Tensor& transmittance,          // [N_rays, N_samples]
+    const torch::Tensor& rho_density,            // [N_rays, N_samples
     
     // Gradient inputs (from upstream)
     const torch::Tensor& grad_rho_density,       // [N_rays, N_samples]
@@ -40,6 +38,9 @@ std::tuple<
     const torch::Tensor& gaussian_opacities,     // [N_gaussians, 1]
     const torch::Tensor& gaussian_features,      // [N_gaussians, K]
     const torch::Tensor& camera_pos,             // [3]
+    
+    // Forward pass outputs (for recomputation)
+    const torch::Tensor& forward_cache,          // [N_rays, N_samples, MAX_GAUSSIANS_PER_RAY] - NEW!
     
     // Hyperparameters
     const int active_sh_degree,

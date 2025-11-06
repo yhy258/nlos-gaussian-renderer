@@ -38,10 +38,6 @@ __global__ void simple_volume_render_backward_kernel(
     const float* __restrict__ gaussian_features,  // [N_gaussians, K] (SH coeffs)
     const float* __restrict__ camera_pos,         // [3]
     
-    // Forward pass outputs (for recomputation)
-    const float* __restrict__ density_fwd,        // [N_rays, N_samples]
-    const float* __restrict__ transmittance_fwd,  // [N_rays, N_samples]
-    
     // Dimensions
     const int N_rays,
     const int N_samples,
@@ -158,9 +154,6 @@ __global__ void simple_volume_render_backward_kernel(
         int out_idx = ray_idx * N_samples + s;
         
         // Load forward pass values
-        float density_s = density_fwd[out_idx];
-        float T_s = transmittance_fwd[out_idx];
-        
         // Load gradient from upstream
         float grad_output_s = grad_rho_density[out_idx];
         
@@ -462,8 +455,6 @@ std::tuple<
         gaussian_opacities.data_ptr<float>(),
         gaussian_features.data_ptr<float>(),
         camera_pos.data_ptr<float>(),
-        density.data_ptr<float>(),
-        transmittance.data_ptr<float>(),
         N_rays,
         N_samples,
         N_gaussians,
