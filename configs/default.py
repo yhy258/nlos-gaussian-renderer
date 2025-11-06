@@ -12,7 +12,7 @@ class Config:
         self.gt_times = 100
         self.save_fig = True
         self.cuda = 0
-        self.occlusion = True
+        self.occlusion = False
         self.epoches = 1000
         self.start = 100
         self.end = 300

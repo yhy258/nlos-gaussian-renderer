@@ -2,7 +2,7 @@ cd cuda_renderer
 pip install .
 cd ..
 
-git clone -b gs-mcmc https://github.com/shakibakh/diff-gaussian-rasterization.git
+git clone https://github.com/yhy258/diff-gaussian-rasterization.git
 cd diff-gaussian-rasterization
 pip install .
 cd ..

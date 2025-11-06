@@ -129,13 +129,13 @@ class CUDARenderFunction(torch.autograd.Function):
             density,
             transmittance,
             forward_cache,  # NEW!
-            rendering_mode
         )
         ctx.active_sh_degree = active_sh_degree
         ctx.c = c
         ctx.deltaT = deltaT
         ctx.scaling_modifier = scaling_modifier
         ctx.use_occlusion = use_occlusion
+        ctx.rendering_mode = rendering_mode
 
         return rho_density, density, transmittance
 
@@ -170,10 +170,9 @@ class CUDARenderFunction(torch.autograd.Function):
             density,
             transmittance,
             forward_cache,  # NEW!
-            rendering_mode
         ) = ctx.saved_tensors
 
-        if rendering_mode == 'simple':
+        if ctx.rendering_mode == 'simple':
             backward_render_fn = _C.simple_render_rays_backward
         else:
             backward_render_fn = _C.render_rays_backward
