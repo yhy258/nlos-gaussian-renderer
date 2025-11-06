@@ -116,7 +116,7 @@ __global__ void simple_volume_render_kernel_global(
             density_out[out_idx] = density;
             transmittance_out[out_idx] = T;
 
-            rho_density_out[out_idx] = weighted_radiance / (density + 1e-8f);
+            rho_density_out[out_idx] = weighted_radiance;
         }
     }
 }
@@ -276,7 +276,7 @@ __global__ void simple_volume_render_kernel_shared(
             int out_idx = ray_idx * N_samples + s;
             density_out[out_idx] = density;
             transmittance_out[out_idx] = T;
-            rho_density_out[out_idx] = weighted_radiance / (density + 1e-8f);
+            rho_density_out[out_idx] = weighted_radiance;
         }
     }
 }
