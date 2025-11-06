@@ -37,6 +37,10 @@ __global__ void simple_volume_render_backward_kernel(
     const float* __restrict__ gaussian_opacities, // [N_gaussians, 1] (logit)
     const float* __restrict__ gaussian_features,  // [N_gaussians, K] (SH coeffs)
     const float* __restrict__ camera_pos,         // [3]
+
+    const float* __restrict__ density_fwd,        // [N_rays, N_samples]
+    const float* __restrict__ transmittance_fwd,  // [N_rays, N_samples]
+    const ForwardCache* __restrict__ cache_in,    // [N_rays, N_samples, MAX_GAUSSIANS_PER_RAY]
     
     // Dimensions
     const int N_rays,
