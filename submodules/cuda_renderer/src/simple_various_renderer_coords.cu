@@ -81,7 +81,8 @@ __global__ void simple_albedo_coords_kernel(
         float opacity = gaussian_opacities[g];
 
         float pdf = eval_gaussian_pdf(pos, mean, scale, quat);
-        
+
+        if (pdf < 1e-6f) continue;
         
         float contrib = pdf * opacity;
         total_contrib += contrib;
@@ -96,7 +97,7 @@ __global__ void simple_albedo_coords_kernel(
     }
     
     // Store final albedo (weighted average)
-    albedo_out[coord_idx] = total_weighted_albedo/total_contrib;
+    albedo_out[coord_idx] = total_weighted_albedo/(total_contrib + 1e-8f);
 }
 
 // Kernel for computing density at given 3D coordinates with AABB filtering

@@ -30,8 +30,10 @@ except ImportError:
 
 def save_model(args, model, current_iter):
     # save model
-    model_save_rel_dir = args.model_save_rel_dir
-    model_dir = model_save_rel_dir
+    basedir = args.basedir
+    expname = args.expname
+    expdir = os.path.join(basedir, expname)
+    model_dir = os.path.join(expdir, 'model')
     os.makedirs(model_dir, exist_ok=True)
     os.makedirs(f'./{model_dir}/iter{current_iter}_save', exist_ok=True)
     model_name = f'./{model_dir}/iter{current_iter}_save/model.pt'
@@ -352,9 +354,11 @@ def compute_loss(args, model: GaussianModel, data_kwargs: dict, optim_kwargs: di
     with torch.no_grad():
         nlos_histogram = data_kwargs['nlos_data'][I1:(I1 + num_r), m, n]
         nlos_histogram = nlos_histogram * args.gt_times
-    loss = optim_kwargs['criterion'](pred_histogram, nlos_histogram)
+    mse_loss = optim_kwargs['l2_criterion'](pred_histogram, nlos_histogram)
+    l1_loss = optim_kwargs['l1_criterion'](pred_histogram, nlos_histogram)
+    loss = (1 - optim_kwargs['l1_weight']) * mse_loss + optim_kwargs['l1_weight'] * l1_loss
     loss_coffe = torch.mean(nlos_histogram ** 2)
-    equal_loss = loss / loss_coffe
+    equal_loss = mse_loss / loss_coffe
 
     if args.save_fig:
         # i: epoch (not iteration.)

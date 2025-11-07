@@ -117,6 +117,7 @@ __global__ void albedo_coords_kernel(
         if (exponent < -10.0f) continue;
         
         float gaussian_weight = expf(exponent);
+        if (gaussian_weight < 1e-6f) continue;
         float density = gaussian_weight * opacity;
         
         // Compute view-dependent albedo using SH

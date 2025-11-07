@@ -72,7 +72,8 @@ class OptimizationParams:
         self.exposure_lr_delay_steps = 0
         self.exposure_lr_delay_mult = 0.0
         self.percent_dense = 0.01
-        self.lambda_dssim = 0.2
+        
+        self.l1_weight = 0.2
 
         ##### Densitification params
         self.mcmc_densification_flag = True

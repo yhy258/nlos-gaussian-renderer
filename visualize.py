@@ -6,11 +6,11 @@ import os
 import matplotlib.pyplot as plt
 
 
-def max_projected_imshow(save_dir, density, albedo):
+def max_projected_imshow(save_dir, density, reflectance):
     if isinstance(density, torch.Tensor):
         density = density.cpu().detach().numpy()
-    if isinstance(albedo, torch.Tensor):
-        albedo = albedo.cpu().detach().numpy()
+    if isinstance(reflectance, torch.Tensor):
+        reflectance = reflectance.cpu().detach().numpy()
     XOY_density = np.max(density, axis = 0)
     plt.imshow(XOY_density)
     plt.colorbar()
@@ -27,17 +27,33 @@ def max_projected_imshow(save_dir, density, albedo):
     plt.savefig(f'{save_dir}/predicted_volume_density_XOZ.png')
     plt.close()
 
-    XOY_albedo = np.max(albedo, axis = 0)
+    XOY_reflectance = np.max(reflectance, axis = 0)
+    plt.imshow(XOY_reflectance)
+    plt.colorbar()
+    plt.savefig(f'{save_dir}/predicted_volume_reflectance_XOY.png')
+    plt.close()
+    YOZ_reflectance = np.max(reflectance, axis = 1)
+    plt.imshow(YOZ_reflectance)
+    plt.colorbar()
+    plt.savefig(f'{save_dir}/predicted_volume_reflectance_YOZ.png')
+    plt.close()
+    XOZ_reflectance = np.max(reflectance, axis = 2)
+    plt.imshow(XOZ_reflectance)
+    plt.colorbar()
+    plt.savefig(f'{save_dir}/predicted_volume_reflectance_XOZ.png')
+    plt.close()
+
+    XOY_albedo = np.max(reflectance*density, axis = 0)
     plt.imshow(XOY_albedo)
     plt.colorbar()
     plt.savefig(f'{save_dir}/predicted_volume_albedo_XOY.png')
     plt.close()
-    YOZ_albedo = np.max(albedo, axis = 1)
+    YOZ_albedo = np.max(reflectance*density, axis = 1)
     plt.imshow(YOZ_albedo)
     plt.colorbar()
     plt.savefig(f'{save_dir}/predicted_volume_albedo_YOZ.png')
     plt.close()
-    XOZ_albedo = np.max(albedo, axis = 2)
+    XOZ_albedo = np.max(reflectance*density, axis = 2)
     plt.imshow(XOZ_albedo)
     plt.colorbar()
     plt.savefig(f'{save_dir}/predicted_volume_albedo_XOZ.png')

@@ -133,11 +133,12 @@ def make_data_kwargs(args, device):
     }
     return data_kwargs, nlos_data, camera_grid_positions, index
 
-def make_optim_kwargs(args):
-    criterion = torch.nn.MSELoss(reduction='mean')
+def make_optim_kwargs(args, optim_args):
+    l2_criterion = torch.nn.MSELoss(reduction='mean')
+    l1_criterion = torch.nn.L1Loss(reduction='mean')
 
     N_iters = args.epoches
-    optim_kwargs = {'criterion': criterion, 'N_iters': N_iters}
+    optim_kwargs = {'l2_criterion': l2_criterion, 'l1_criterion': l1_criterion, 'N_iters': N_iters, 'l1_weight': optim_args.l1_weight}
     return optim_kwargs
 
 def warmup_learn_func(args, optim_args, model, data_kwargs, optim_kwargs, device):
@@ -255,7 +256,7 @@ def learn_func(args, optim_args, model, data_kwargs, optim_kwargs, eval_kwargs, 
                 gaussian2volume(args, model, eval_coords, data_kwargs, eval_cam_pos, optim_kwargs['current_iter'], resolution=128)
 
             optim_kwargs['current_iter'] += 1
-            if optim_kwargs['current_iter'] % 1000 == 0:
+            if optim_kwargs['current_iter'] % 200 == 0:
                 model.oneupSHdegree()
 
         ### TODO: save losses
@@ -375,7 +376,7 @@ def train(args, optim_args, device):
     L, M, N = nlos_data.shape
 
     # Make optim_kwargs (criterion, ...)
-    optim_kwargs = make_optim_kwargs(args)
+    optim_kwargs = make_optim_kwargs(args, optim_args)
     optim_kwargs['M'] = M
     optim_kwargs['N'] = N
 
