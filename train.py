@@ -150,7 +150,7 @@ def warmup_learn_func(args, optim_args, model, data_kwargs, optim_kwargs, device
         model.update_learning_rate(optim_kwargs['current_iter'])
         # model.optimizer.zero_grad()
         optim_kwargs['m'], optim_kwargs['n'] = m, n
-        loss, equal_loss = compute_loss(args, model, data_kwargs, optim_kwargs, device)
+        loss, equal_loss = compute_loss(args, model, data_kwargs, optim_kwargs, False, 0, device)
         if optim_args.regularization:
             # reg1 = optim_args.opacity_reg * torch.abs(model.get_opacity).mean()
             # reg2 = optim_args.scale_reg * torch.abs(model.get_scaling).mean()
@@ -203,12 +203,18 @@ def learn_func(args, optim_args, model, data_kwargs, optim_kwargs, eval_kwargs, 
     histogram_losses_2d = torch.zeros((M, N))
     histogram_eq_losses_2d = torch.zeros((M, N))
 
+    training_sections = []
+    if args.coarse_to_fine:
+        num_sections = len(args.num_sampling_points)
+        if num_sections > 1:
+            training_sections = [optim_kwargs['total_iter'] * i // num_sections for i in range(1, num_sections)]
+
     def learn_one_iter(m, n):
         vram_log = ""
         model.update_learning_rate(optim_kwargs['current_iter'])
         # model.optimizer.zero_grad()
         optim_kwargs['m'], optim_kwargs['n'] = m, n
-        loss, equal_loss = compute_loss(args, model, data_kwargs, optim_kwargs, device)
+        loss, equal_loss = compute_loss(args, model, data_kwargs, optim_kwargs, args.coarse_to_fine, args.coarse_to_fine_idx, device)
         if optim_args.regularization:
             # reg1 = optim_args.opacity_reg * torch.abs(model.get_opacity).mean()
             # reg2 = optim_args.scale_reg * torch.abs(model.get_scaling).mean()
@@ -222,8 +228,8 @@ def learn_func(args, optim_args, model, data_kwargs, optim_kwargs, eval_kwargs, 
             if optim_args.mcmc_densification_flag:
                 if optim_kwargs['current_iter'] < optim_args.densify_until_iter and optim_kwargs['current_iter'] > optim_args.densify_from_iter and optim_kwargs['current_iter'] % optim_args.densification_interval == 0:
                     dead_mask = (model.get_opacity <= 0.005).squeeze(-1)
-                    model.relocate_gs(dead_mask=dead_mask)
-                    model.add_new_gs(cap_max=optim_args.cap_max)
+                    model.relocate_gs(dead_mask=dead_mask, mu_jittering=args.mu_jittering)
+                    model.add_new_gs(cap_max=optim_args.cap_max, mu_jittering=args.mu_jittering)
                     print(f"Densification. Current Gaussian Numbers: {model.get_mu.shape[0]}")
             
             model.optimizer.step()
@@ -256,6 +262,10 @@ def learn_func(args, optim_args, model, data_kwargs, optim_kwargs, eval_kwargs, 
                 gaussian2volume(args, model, eval_coords, data_kwargs, eval_cam_pos, optim_kwargs['current_iter'], resolution=128)
 
             optim_kwargs['current_iter'] += 1
+            if training_sections:
+                next_idx = args.coarse_to_fine_idx + 1
+                if next_idx < len(args.num_sampling_points) and optim_kwargs['current_iter'] >= training_sections[next_idx - 1]:
+                    args.coarse_to_fine_idx = next_idx
             if optim_kwargs['current_iter'] % 200 == 0:
                 model.oneupSHdegree()
 
@@ -388,6 +398,14 @@ def train(args, optim_args, device):
     optim_kwargs['prev_time'] = time0
     print(' ')
     
+    ### coarse to fine training.
+    if isinstance(args.num_sampling_points, list):
+        args.coarse_to_fine = True
+        args.coarse_to_fine_idx = 0
+    else:
+        args.coarse_to_fine = False
+        args.coarse_to_fine_idx = 0
+
     model, optim_kwargs = warmup_learn_func(args, optim_args, model, data_kwargs, optim_kwargs, device)
     while True:
         model, optim_kwargs, complete = learn_func(args, optim_args, model, data_kwargs, optim_kwargs, eval_kwargs, device)

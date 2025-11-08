@@ -6,7 +6,7 @@ class Config:
         self.train = True # if this is False, only conduct evaluation
 
         self.rng = 0
-        self.datadir = './data/zaragozadataset/zaragoza256_preprocessed.mat'
+        self.datadir = '/root/Joon/CDT_GaussianRepr/NeTF_public/data/zaragozadataset/zaragoza256_preprocessed.mat'
         self.dataset_type = 'zaragoza256'
         self.scene = 'zaragoza_bunny'
         self.gt_times = 100
@@ -16,20 +16,21 @@ class Config:
         self.epoches = 1000
         self.start = 100
         self.end = 300
-        self.num_sampling_points = 32
-        self.expname = 'zaragoza-bunny-256'
+        self.r_step = [25, 10, 1] # coarse to fine
+        self.num_sampling_points = [32, 64, 128]
+        self.expname = 'zaragoza-bunny-256-150kinitgauss-1000adc25000max-48smp-fastshdegree'
         self.basedir = './logs'
 
 
         self.config = 'config'
         self.model_save_rel_dir = 'model'
-        self.save_model_interval = 5000
+        self.save_model_interval = 1000
         self.save_hist_fig_interval = 500
         self.print_interval = 100
 
         #### Gaussian Instance Init
         self.sh_degree = 3
-        self.init_gaussian_num = 10000
+        self.init_gaussian_num = 150000
         self.init_sample_margin = 0.1
         self.space_carving_init = True
         self.carving_volume_size = 64
@@ -73,16 +74,16 @@ class OptimizationParams:
         self.exposure_lr_delay_mult = 0.0
         self.percent_dense = 0.01
         
-        self.l1_weight = 0.2
+        self.l1_weight = 0
 
         ##### Densitification params
         self.mcmc_densification_flag = True
         self.densification_interval = 1000
         self.opacity_reset_interval = 3000
         self.densify_from_iter = 500
-        self.densify_until_iter = 25_000
+        self.densify_until_iter = 25000
         self.densify_grad_threshold = 0.0002
-        self.cap_max = 100000
+        self.cap_max = 1000000
 
 
         ##### Loss coef

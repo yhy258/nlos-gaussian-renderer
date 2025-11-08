@@ -510,7 +510,8 @@ class GaussianModel:
 
         return optimizable_tensors
 
-    def _update_params(self, idxs, ratio):
+    def _update_params(self, idxs, ratio, jitter_mu=False):
+        # in some cases, we need to jitter mu.
         if self.rendering_mode == 'simple':
             new_opacity, new_scaling = simple_compute_relocation_cuda(
                 opacity_old=self.get_opacity[idxs, 0],
@@ -523,11 +524,15 @@ class GaussianModel:
                 scale_old=self.get_scaling[idxs],
                 N=ratio[idxs, 0] + 1
             )
+        
+        if jitter_mu:
+            update_mu = self._mu[idxs] + torch.randn_like(self._mu[idxs]) * torch.sqrt(new_scaling) * 2.335 # full width half maximum
+        else:
+            update_mu = self._mu[idxs]
         new_opacity = torch.clamp(new_opacity.unsqueeze(-1), max=1.0 - torch.finfo(torch.float32).eps, min=0.005)
         new_opacity = self.inverse_opacity_activation(new_opacity)
         new_scaling = self.scaling_inverse_activation(new_scaling.reshape(-1, 3))
-
-        return self._mu[idxs], self._features_dc[idxs], self._features_rest[idxs], new_opacity, new_scaling, self._rotation[idxs]
+        return update_mu, self._features_dc[idxs], self._features_rest[idxs], new_opacity, new_scaling, self._rotation[idxs]
 
     def _sample_alives(self, probs, num, alive_indices=None):
         probs = probs / (probs.sum() + torch.finfo(torch.float32).eps)
@@ -539,7 +544,7 @@ class GaussianModel:
 
 
     # Relocate Dead Gaussians to some live Gaussians!
-    def relocate_gs(self, dead_mask=None):
+    def relocate_gs(self, dead_mask=None, mu_jittering=False):
         if dead_mask.sum() == 0:
             return
 
@@ -562,14 +567,14 @@ class GaussianModel:
             self._opacity[dead_indices],
             self._scaling[dead_indices],
             self._rotation[dead_indices]
-        ) = self._update_params(reinit_idx, ratio=ratio)
+        ) = self._update_params(reinit_idx, ratio=ratio, mu_jittering=mu_jittering)
 
         self._opacity[reinit_idx] = self._opacity[dead_indices]
         self._scaling[reinit_idx] = self._scaling[dead_indices]
 
         self.replace_tensors_to_optimizer(inds=reinit_idx)
 
-    def add_new_gs(self, cap_max):
+    def add_new_gs(self, cap_max, mu_jittering=False):
         current_num_points = self._opacity.shape[0]
         target_num = min(cap_max, int(1.05 * current_num_points))
         num_gs = max(0, target_num - current_num_points)
@@ -587,7 +592,7 @@ class GaussianModel:
             new_opacity,
             new_scaling,
             new_rotation
-        ) = self._update_params(add_idx, ratio=ratio)
+        ) = self._update_params(add_idx, ratio=ratio, mu_jittering=mu_jittering)
 
         self._opacity[add_idx] = new_opacity
         self._scaling[add_idx] = new_scaling

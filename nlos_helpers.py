@@ -149,7 +149,7 @@ def volume_box_point(volume_position, volume_size):
 
 # def spherical_sample_histogram(camera_grid_positions, volume_position, volume_size, deltaT, c,  num_sampling_points, start, end):
 # make torch functions.
-def spherical_sample_histogram(args, data_kwargs, current_camera_grid_positions):
+def spherical_sample_histogram(args, data_kwargs, current_camera_grid_positions, coarse_to_fine=False, coarse_to_fine_idx=0):
     """
     args
         data_kwargs:
@@ -163,6 +163,16 @@ def spherical_sample_histogram(args, data_kwargs, current_camera_grid_positions)
             c: The speed of the light
             pmin and pmax: the range of the volume coordinate
     """
+
+    if coarse_to_fine == False and isinstance(args.num_sampling_points, list):
+        num_sampling_points = args.num_sampling_points[0]
+        r_step = args.r_step[0]
+    elif coarse_to_fine == True:
+        num_sampling_points = args.num_sampling_points[coarse_to_fine_idx]
+        r_step = args.r_step[coarse_to_fine_idx]
+    else:
+        num_sampling_points = args.num_sampling_points
+        r_step = 1
 
 
     ### The distance unit is µm.
@@ -184,7 +194,6 @@ def spherical_sample_histogram(args, data_kwargs, current_camera_grid_positions)
     phi_max = torch.max(sphere_box_point[:, 2]).item()
 
     # make angular grid
-    num_sampling_points = args.num_sampling_points
     theta = torch.linspace(theta_min, theta_max, num_sampling_points, dtype=torch.float, device=device)
     phi = torch.linspace(phi_min, phi_max, num_sampling_points, dtype=torch.float, device=device)
 
@@ -196,8 +205,7 @@ def spherical_sample_histogram(args, data_kwargs, current_camera_grid_positions)
     deltaT = data_kwargs['deltaT']
     r_min = args.start * c * deltaT
     r_max = args.end * c * deltaT
-    num_r = args.end - args.start
-    r = torch.linspace(r_min, r_max, num_r, dtype=torch.float, device=device) # Nr
+    r = torch.arange(r_min, r_max+ c*deltaT, r_step*deltaT*c, dtype=torch.float, device=device)
 
     I1 = math.floor(r_min / (c * deltaT)) # start idx
     I2 = math.ceil(r_max / (c * deltaT)) # end idx
@@ -213,17 +221,18 @@ def spherical_sample_histogram(args, data_kwargs, current_camera_grid_positions)
     # x, y, z are the absolute position
     # theta and phi are the relative parameters for the given camera position
     cartesian = torch.cat((cartesian, spherical[:,1:3]), axis = 1).float() # x, y, z, theta, phi
-    return cartesian, I1, I2, num_r, dtheta, dphi, theta_min, theta_max, phi_min, phi_max
+    return cartesian, I1, I2, num_sampling_points, num_r, dtheta, dphi, theta_min, theta_max, phi_min, phi_max
 
 
 
-def gaussian_transient_rendering_cuda(args, model, data_kwargs, input_points, current_camera_grid_positions, I1, I2, num_r, dtheta, dphi):
+def gaussian_transient_rendering_cuda(args, model, data_kwargs, input_points, current_camera_grid_positions, num_sampling_points, I1, I2, num_r, dtheta, dphi):
     """
     CUDA-accelerated version of gaussian_transient_rendering.
 
     Uses ray-based rendering with Gaussian filtering for efficient computation.
     Only relevant Gaussians are processed for each ray.
     """
+
     # Extract angular ranges from input_points
     theta_vals = input_points[:, 3]
     phi_vals = input_points[:, 4]
@@ -257,8 +266,8 @@ def gaussian_transient_rendering_cuda(args, model, data_kwargs, input_points, cu
         theta_range=(theta_min, theta_max),
         phi_range=(phi_min, phi_max),
         r_range=(r_min, r_max),
-        num_theta=args.num_sampling_points,
-        num_phi=args.num_sampling_points,
+        num_theta=num_sampling_points,
+        num_phi=num_sampling_points,
         num_r=num_r,
         c=data_kwargs['c'],
         deltaT=data_kwargs['deltaT'],
@@ -268,7 +277,7 @@ def gaussian_transient_rendering_cuda(args, model, data_kwargs, input_points, cu
     )
 
     # Reshape to match original format [num_r, num_angular^2]
-    result = result_3d.reshape(num_r, args.num_sampling_points * args.num_sampling_points)
+    result = result_3d.reshape(num_r, num_sampling_points * num_sampling_points)
 
     # Apply the mysterious scaling factor (kept for compatibility)
     result = result * (data_kwargs['volume_position'][1] ** 2)
@@ -276,11 +285,11 @@ def gaussian_transient_rendering_cuda(args, model, data_kwargs, input_points, cu
 
     return result, pred_histogram
 
-def gaussian_transient_rendering(args, model, data_kwargs, input_points, current_camera_grid_positions, I1, I2, num_r, dtheta, dphi):
+def gaussian_transient_rendering(args, model, data_kwargs, input_points, current_camera_grid_positions, num_sampling_points, I1, I2, num_r, dtheta, dphi):
     if hasattr(args, 'use_cuda_renderer') and args.use_cuda_renderer and CUDA_RENDERER is not None:
         return gaussian_transient_rendering_cuda(
             args, model, data_kwargs, input_points,
-            current_camera_grid_positions, I1, I2, num_r, dtheta, dphi
+            current_camera_grid_positions, num_sampling_points, I1, I2, num_r, dtheta, dphi
         )
     # Result: Na (Na = Nr x Ntheta x Nphi)
     input_points_ori = input_points[:, 0:3] # spatial coordinate Na by 3
@@ -309,7 +318,7 @@ def gaussian_transient_rendering(args, model, data_kwargs, input_points, current
 
     return result, pred_histogram
 
-def compute_loss(args, model: GaussianModel, data_kwargs: dict, optim_kwargs: dict, device: torch.device):
+def compute_loss(args, model: GaussianModel, data_kwargs: dict, optim_kwargs: dict, coarse_to_fine: bool, coarse_to_fine_idx: int, device: torch.device):
     """
         data_kwargs:
             index: the indices for the shuffled data
@@ -344,11 +353,11 @@ def compute_loss(args, model: GaussianModel, data_kwargs: dict, optim_kwargs: di
         ### only consider the confocal setting
         # input_points: (N, 3) where N = Nr*Na^2. Nr is the number of samples for radius, and Na is the number of samples for angular components (theta and phi.)
         # and Na == args.num_sampling_points
-        input_points, I1, I2, num_r, dtheta, dphi, theta_min, theta_max, phi_min, phi_max = spherical_sample_histogram(args, data_kwargs, current_camera_grid_positions)
+        input_points, I1, I2, num_sampling_points, num_r, dtheta, dphi, theta_min, theta_max, phi_min, phi_max = spherical_sample_histogram(args, data_kwargs, current_camera_grid_positions, coarse_to_fine, coarse_to_fine_idx)
 
     #### We should devise the following function
     # print("The number of r's sampling points", num_r)
-    result, pred_histogram  = gaussian_transient_rendering(args, model, data_kwargs, input_points, current_camera_grid_positions, I1, I2, num_r, dtheta, dphi)
+    result, pred_histogram  = gaussian_transient_rendering(args, model, data_kwargs, input_points, current_camera_grid_positions, num_sampling_points, I1, I2, num_r, dtheta, dphi)
     # print(f"Thue shape of the result: {result.shape} and the shape of the input points (sampling points): {input_points.shape}")
     #### Matching the time indices
     with torch.no_grad():
